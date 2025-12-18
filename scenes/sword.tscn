@@ -1,0 +1,134 @@
+[gd_scene load_steps=8 format=3 uid="uid://c68w6oddv5fma"]
+
+[ext_resource type="Texture2D" uid="uid://uo87em2fies5" path="res://assets/diamond_sword.png" id="1_7flqi"]
+[ext_resource type="Script" uid="uid://7ateyfbjt2ab" path="res://scripts/hitbox.gd" id="2_kchcj"]
+
+[sub_resource type="GDScript" id="GDScript_7flqi"]
+script/source = "extends Node2D
+
+# Called when the node enters the scene tree for the first time.
+func _ready() -> void:
+	pass # Replace with function body.
+
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(delta: float) -> void:	
+	rotation_degrees = wrap(rotation_degrees, 0, 360)
+	if rotation_degrees>90 and rotation_degrees<270:
+		scale.y = -1
+	else:
+		scale.y = 1
+		
+"
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1df6x"]
+radius = 4.242641
+height = 19.798994
+
+[sub_resource type="Animation" id="Animation_kchcj"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("../sword/DiamondSword:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("../sword/DiamondSword/Hitbox/CollisionShape2D:disabled")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [true]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("DiamondSword:visible")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 1,
+"values": [false]
+}
+
+[sub_resource type="Animation" id="Animation_7flqi"]
+resource_name = "swing"
+length = 0.36667
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("../sword/DiamondSword:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.1, 0.2, 0.36666667),
+"transitions": PackedFloat32Array(1, 1, 1, 1),
+"update": 0,
+"values": [0.7853981633974483, -1.277581012459849, 2.4085543677521746, 0.7853981633974483]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("../sword/DiamondSword/Hitbox/CollisionShape2D:disabled")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.1, 0.2),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 1,
+"values": [true, false, true]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("DiamondSword:visible")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.36666667),
+"transitions": PackedFloat32Array(1, 1),
+"update": 1,
+"values": [true, false]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_1df6x"]
+_data = {
+&"RESET": SubResource("Animation_kchcj"),
+&"swing": SubResource("Animation_7flqi")
+}
+
+[node name="sword" type="Node2D"]
+script = SubResource("GDScript_7flqi")
+
+[node name="DiamondSword" type="Sprite2D" parent="."]
+visible = false
+texture = ExtResource("1_7flqi")
+offset = Vector2(6.5, -6)
+
+[node name="Hitbox" type="Area2D" parent="DiamondSword"]
+script = ExtResource("2_kchcj")
+metadata/_custom_type_script = "uid://7ateyfbjt2ab"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="DiamondSword/Hitbox"]
+position = Vector2(10.000001, -10.000001)
+rotation = 0.7853982
+shape = SubResource("CapsuleShape2D_1df6x")
+disabled = true
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_1df6x")
+}

@@ -1,0 +1,74 @@
+[gd_scene load_steps=9 format=3 uid="uid://bfg8sewv43ojc"]
+
+[ext_resource type="Script" uid="uid://cmm4j7fkr6n3a" path="res://scripts/enemy.gd" id="1_ad2ka"]
+[ext_resource type="Texture2D" uid="uid://chb10co47o7u6" path="res://assets/creeper(1).png" id="1_q4yn1"]
+[ext_resource type="Script" uid="uid://dus5n1rqsvqg" path="res://scripts/hurtbox.gd" id="2_ad2ka"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_q4yn1"]
+radius = 5.0
+height = 18.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_ad2ka"]
+radius = 5.0
+height = 20.0
+
+[sub_resource type="Animation" id="Animation_q4yn1"]
+resource_name = "got_attack"
+length = 0.33333668
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Creeper:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.06666667, 0.13333334, 0.16666667, 0.23333333, 0.33333668),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1, 1),
+"update": 0,
+"values": [0.0, -0.4607669225265026, 0.4537856055185257, -0.4537856055185257, 0.4537856055185257, 0.0]
+}
+
+[sub_resource type="Animation" id="Animation_ad2ka"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Creeper:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [0.0]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_i5e8t"]
+_data = {
+&"RESET": SubResource("Animation_ad2ka"),
+&"got_attack": SubResource("Animation_q4yn1")
+}
+
+[node name="enemy" type="CharacterBody2D"]
+script = ExtResource("1_ad2ka")
+
+[node name="Creeper" type="Sprite2D" parent="."]
+position = Vector2(0, 5)
+texture = ExtResource("1_q4yn1")
+offset = Vector2(0, -6)
+
+[node name="Hurtbox" type="Area2D" parent="Creeper"]
+script = ExtResource("2_ad2ka")
+metadata/_custom_type_script = "uid://dus5n1rqsvqg"
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Creeper/Hurtbox"]
+position = Vector2(0, -5)
+shape = SubResource("CapsuleShape2D_q4yn1")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CapsuleShape2D_ad2ka")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_i5e8t")
+}
