@@ -29,6 +29,10 @@ var online_label: Label
 var back_to_lobby_button: Button
 var presence_poll_timer: Timer
 var world_poll_timer: Timer
+var position_sync_timer: Timer
+
+var _last_synced_position := Vector2.ZERO
+var _position_sync_in_flight := false
 
 func _ready() -> void:
 	if player_scene == null:
@@ -292,6 +296,13 @@ func _start_gameplay(selected_profile: Dictionary) -> void:
 		presence_poll_timer.start()
 	if world_poll_timer:
 		world_poll_timer.start()
+	if position_sync_timer:
+		position_sync_timer.start()
+
+	_last_synced_position = Vector2(
+		float(selected_profile.get("position", {}).get("x", 0.0)),
+		float(selected_profile.get("position", {}).get("y", 0.0))
+	)
 
 
 func _refresh_world_state(selected_profile: Dictionary) -> void:
@@ -395,6 +406,12 @@ func _ensure_gameplay_ui() -> void:
 	world_poll_timer.timeout.connect(_on_world_poll_timeout)
 	add_child(world_poll_timer)
 
+	position_sync_timer = Timer.new()
+	position_sync_timer.wait_time = 0.15
+	position_sync_timer.one_shot = false
+	position_sync_timer.timeout.connect(_on_position_sync_timeout)
+	add_child(position_sync_timer)
+
 
 func _on_presence_poll_timeout() -> void:
 	await api_client.fetch_online_users()
@@ -407,6 +424,24 @@ func _on_world_poll_timeout() -> void:
 	if selected_profile.is_empty():
 		return
 	await _refresh_world_state(selected_profile)
+
+
+func _on_position_sync_timeout() -> void:
+	if _position_sync_in_flight or selected_profile_id.is_empty():
+		return
+
+	var local_player: CharacterBody2D = players.get(selected_profile_id)
+	if local_player == null or not is_instance_valid(local_player):
+		return
+
+	if local_player.global_position.distance_squared_to(_last_synced_position) < 0.5:
+		return
+
+	_position_sync_in_flight = true
+	var result := await api_client.update_profile_position(selected_profile_id, local_player.global_position)
+	if result.get("ok", false):
+		_last_synced_position = local_player.global_position
+	_position_sync_in_flight = false
 
 
 func _on_presence_changed(online: Array, count: int) -> void:
@@ -424,6 +459,8 @@ func _on_back_to_lobby_pressed() -> void:
 		presence_poll_timer.stop()
 	if world_poll_timer:
 		world_poll_timer.stop()
+	if position_sync_timer:
+		position_sync_timer.stop()
 	await api_client.disconnect_session()
 	await _show_lobby(current_account)
 
@@ -433,6 +470,8 @@ func _on_logout_pressed() -> void:
 		presence_poll_timer.stop()
 	if world_poll_timer:
 		world_poll_timer.stop()
+	if position_sync_timer:
+		position_sync_timer.stop()
 	await api_client.logout()
 	if gameplay_ui_layer:
 		gameplay_ui_layer.queue_free()
