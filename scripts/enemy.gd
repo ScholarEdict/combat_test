@@ -10,7 +10,9 @@ var speed: float = 50.0
 var knockback: Vector2 = Vector2.ZERO
 var knockback_timer: float = 0.0
 var active_players: Dictionary = {}
-var target_player_id := ""
+var current_target_id := ""
+var aggro_order: Dictionary = {}
+var players_in_range: Dictionary = {}
 var is_chasing_target := false
 
 
@@ -21,12 +23,14 @@ func _ready() -> void:
 	if exit_radius < enter_radius:
 		exit_radius = enter_radius
 	active_players = get_active_players()
-	target_player_id = select_target(active_players)
+	_update_players_in_range(active_players)
+	current_target_id = select_target(players_in_range)
 
 
 func _physics_process(delta: float) -> void:
 	active_players = get_active_players()
-	target_player_id = select_target(active_players)
+	_update_players_in_range(active_players)
+	current_target_id = select_target(players_in_range)
 
 	if knockback_timer > 0:
 		position += knockback
@@ -38,7 +42,7 @@ func _physics_process(delta: float) -> void:
 
 
 func _movement(_delta: float) -> void:
-	var target: CharacterBody2D = active_players.get(target_player_id)
+	var target: CharacterBody2D = active_players.get(current_target_id)
 	if target == null:
 		velocity = Vector2.ZERO
 		is_chasing_target = false
@@ -93,27 +97,56 @@ func select_target(players: Dictionary) -> String:
 		is_chasing_target = false
 		return ""
 
-	if players.has(target_player_id):
-		var current_target: CharacterBody2D = players[target_player_id]
+	if players.has(current_target_id):
+		var current_target: CharacterBody2D = players[current_target_id]
 		if current_target and is_instance_valid(current_target):
 			var current_distance := global_position.distance_to(current_target.global_position)
 			if current_distance <= exit_radius:
-				return target_player_id
+				return current_target_id
 
-	var nearest_id := ""
-	var nearest_distance_sq := INF
-	var chase_radius_sq := enter_radius * enter_radius
+	var sorted_ids := players.keys()
+	sorted_ids.sort_custom(_compare_aggro_priority)
+	return str(sorted_ids.front()) if not sorted_ids.is_empty() else ""
+
+
+func _update_players_in_range(players: Dictionary) -> void:
+	var updated_in_range: Dictionary = {}
 	for id in players.keys():
-		var candidate: CharacterBody2D = players[id]
-		if candidate == null or not is_instance_valid(candidate):
+		var player: CharacterBody2D = players[id]
+		if player == null or not is_instance_valid(player):
 			continue
 
-		var distance_sq := global_position.distance_squared_to(candidate.global_position)
-		if distance_sq <= chase_radius_sq and distance_sq < nearest_distance_sq:
-			nearest_distance_sq = distance_sq
-			nearest_id = id
+		var is_already_tracking := players_in_range.has(id)
+		var radius := exit_radius if is_already_tracking else enter_radius
+		if global_position.distance_to(player.global_position) > radius:
+			continue
 
-	return nearest_id
+		updated_in_range[id] = player
+		if not aggro_order.has(id):
+			aggro_order[id] = {
+				"entered_at_ms": Time.get_ticks_msec(),
+				"player_id": str(id),
+			}
+
+	players_in_range = updated_in_range
+
+	for id in aggro_order.keys():
+		if not players_in_range.has(id):
+			aggro_order.erase(id)
+
+
+func _compare_aggro_priority(left_id: Variant, right_id: Variant) -> bool:
+	var left_key := str(left_id)
+	var right_key := str(right_id)
+	var left_entry: Dictionary = aggro_order.get(left_key, {})
+	var right_entry: Dictionary = aggro_order.get(right_key, {})
+
+	var left_time := int(left_entry.get("entered_at_ms", 0))
+	var right_time := int(right_entry.get("entered_at_ms", 0))
+	if left_time == right_time:
+		return left_key < right_key
+
+	return left_time < right_time
 
 
 func _play_idle_if_available() -> void:
@@ -132,6 +165,8 @@ func _on_tree_node_removed(node: Node) -> void:
 	for id in active_players.keys():
 		if active_players[id] == node:
 			active_players.erase(id)
-			if target_player_id == id:
-				target_player_id = ""
+			players_in_range.erase(id)
+			aggro_order.erase(id)
+			if current_target_id == id:
+				current_target_id = ""
 			break
