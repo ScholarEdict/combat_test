@@ -2,11 +2,13 @@ const state = {
   token: localStorage.getItem("session_token") || "",
   profiles: [],
   activeProfileId: localStorage.getItem("active_profile_id") || "",
+  inGame: false,
 };
 
 const byId = (id) => document.getElementById(id);
 const logsEl = byId("logs");
 const authStatus = byId("authStatus");
+const lobbyStatus = byId("lobbyStatus");
 
 function log(message, payload = null) {
   const line = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -34,9 +36,17 @@ async function api(path, method = "GET", body = null) {
   return data.data;
 }
 
+function updateView() {
+  const loggedIn = Boolean(state.token);
+  byId("authCard").classList.toggle("hidden", loggedIn);
+  byId("lobbyCard").classList.toggle("hidden", !loggedIn || state.inGame);
+  byId("gameCard").classList.toggle("hidden", !loggedIn || !state.inGame);
+}
+
 function renderProfiles() {
   const select = byId("profileSelect");
   select.innerHTML = "";
+
   for (const profile of state.profiles) {
     const option = document.createElement("option");
     option.value = profile.player_id;
@@ -46,9 +56,17 @@ function renderProfiles() {
     }
     select.appendChild(option);
   }
-  if (!state.activeProfileId && state.profiles.length > 0) {
-    state.activeProfileId = state.profiles[0].player_id;
+
+  if (!state.profiles.some((profile) => profile.player_id === state.activeProfileId)) {
+    state.activeProfileId = state.profiles.length > 0 ? state.profiles[0].player_id : "";
+  }
+
+  if (state.activeProfileId) {
     localStorage.setItem("active_profile_id", state.activeProfileId);
+    lobbyStatus.textContent = "Profile selected. Click Play to enter the game.";
+  } else {
+    localStorage.removeItem("active_profile_id");
+    lobbyStatus.textContent = "Create or select a profile, then click Play.";
   }
 }
 
@@ -59,6 +77,10 @@ async function refreshProfiles() {
 }
 
 async function refreshWorld() {
+  if (!state.inGame) {
+    return;
+  }
+
   const data = await api("/world/state");
   const tbody = byId("worldBody");
   tbody.innerHTML = "";
@@ -99,6 +121,51 @@ async function refreshWorld() {
   }
 }
 
+async function enterGame() {
+  if (!state.activeProfileId) {
+    log("Select or create a profile before playing");
+    return;
+  }
+
+  try {
+    await api("/session/connect", "POST");
+    state.inGame = true;
+    updateView();
+    await refreshWorld();
+    log("Entered game world");
+  } catch (error) {
+    log(`Unable to enter game: ${error.message}`);
+  }
+}
+
+async function leaveGame() {
+  try {
+    await api("/session/disconnect", "POST");
+  } catch (_error) {
+    // Ignore disconnect failure.
+  }
+
+  state.inGame = false;
+  byId("worldBody").innerHTML = "";
+  updateView();
+  log("Returned to profile selection");
+}
+
+function resetAuthState(message = "Not logged in") {
+  state.token = "";
+  state.profiles = [];
+  state.activeProfileId = "";
+  state.inGame = false;
+
+  localStorage.removeItem("session_token");
+  localStorage.removeItem("active_profile_id");
+
+  byId("worldBody").innerHTML = "";
+  authStatus.textContent = message;
+  renderProfiles();
+  updateView();
+}
+
 function bindEvents() {
   byId("registerBtn").addEventListener("click", async () => {
     try {
@@ -112,6 +179,7 @@ function bindEvents() {
       authStatus.textContent = `Logged in as ${data.user.username}`;
       log("Register success", data);
       await refreshProfiles();
+      updateView();
     } catch (error) {
       log(`Register failed: ${error.message}`);
     }
@@ -128,6 +196,7 @@ function bindEvents() {
       authStatus.textContent = `Logged in as ${data.user.username}`;
       log("Login success", data);
       await refreshProfiles();
+      updateView();
     } catch (error) {
       log(`Login failed: ${error.message}`);
     }
@@ -139,14 +208,7 @@ function bindEvents() {
     } catch (_error) {
       // Ignore logout failure.
     }
-    state.token = "";
-    state.profiles = [];
-    state.activeProfileId = "";
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("active_profile_id");
-    renderProfiles();
-    byId("worldBody").innerHTML = "";
-    authStatus.textContent = "Not logged in";
+    resetAuthState("Not logged in");
     log("Logged out");
   });
 
@@ -157,7 +219,6 @@ function bindEvents() {
       });
       log("Profile created", data);
       await refreshProfiles();
-      await refreshWorld();
     } catch (error) {
       log(`Create profile failed: ${error.message}`);
     }
@@ -166,17 +227,11 @@ function bindEvents() {
   byId("profileSelect").addEventListener("change", (event) => {
     state.activeProfileId = event.target.value;
     localStorage.setItem("active_profile_id", state.activeProfileId);
+    renderProfiles();
   });
 
-  byId("connectBtn").addEventListener("click", async () => {
-    try {
-      const data = await api("/session/connect", "POST");
-      log("Connected", data);
-      await refreshWorld();
-    } catch (error) {
-      log(`Connect failed: ${error.message}`);
-    }
-  });
+  byId("playBtn").addEventListener("click", enterGame);
+  byId("changeProfileBtn").addEventListener("click", leaveGame);
 
   byId("disconnectBtn").addEventListener("click", async () => {
     try {
@@ -213,6 +268,8 @@ function bindEvents() {
 
 async function boot() {
   bindEvents();
+  updateView();
+
   if (!state.token) {
     authStatus.textContent = "Not logged in";
     return;
@@ -222,18 +279,16 @@ async function boot() {
     const me = await api("/profile/me");
     authStatus.textContent = `Logged in as ${me.profile.username}`;
     await refreshProfiles();
-    await refreshWorld();
+    updateView();
   } catch (error) {
-    state.token = "";
-    localStorage.removeItem("session_token");
-    authStatus.textContent = "Session expired. Please login again.";
+    resetAuthState("Session expired. Please login again.");
     log(`Boot session failed: ${error.message}`);
   }
 }
 
 boot();
 setInterval(() => {
-  if (state.token) {
+  if (state.token && state.inGame) {
     refreshWorld().catch((error) => log(`Auto refresh failed: ${error.message}`));
   }
 }, 3000);
