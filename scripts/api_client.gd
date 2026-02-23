@@ -65,6 +65,20 @@ func fetch_profile() -> Dictionary:
 	return response
 
 
+func list_profiles() -> Dictionary:
+	return await _request_json("/profiles", HTTPClient.METHOD_GET)
+
+
+func create_profile(display_name: String) -> Dictionary:
+	return await _request_json("/profiles", HTTPClient.METHOD_POST, {
+		"display_name": display_name,
+	})
+
+
+func fetch_world_state() -> Dictionary:
+	return await _request_json("/world/state", HTTPClient.METHOD_GET)
+
+
 func connect_session() -> Dictionary:
 	return await _request_json("/session/connect", HTTPClient.METHOD_POST)
 

@@ -14,11 +14,21 @@ var password_input: LineEdit
 var username_input: LineEdit
 var email_input: LineEdit
 
+var lobby_layer: CanvasLayer
+var lobby_status_label: Label
+var profile_name_input: LineEdit
+var profile_select: OptionButton
+var profile_map: Dictionary = {}
+var profile_ids: Array[String] = []
+var selected_profile_id := ""
+var current_account: Dictionary = {}
+
 var gameplay_ui_layer: CanvasLayer
 var account_label: Label
 var online_label: Label
-var logout_button: Button
+var back_to_lobby_button: Button
 var presence_poll_timer: Timer
+var world_poll_timer: Timer
 
 func _ready() -> void:
 	if player_scene == null:
@@ -45,135 +55,20 @@ func _disconnect_presence_no_wait() -> void:
 
 func _gate_auth_then_start_game() -> void:
 	if api_client.has_session():
-		_set_status("Found session, loading profile...")
 		var profile_result := await api_client.fetch_profile()
 		if profile_result.get("ok", false):
-			await _start_gameplay(profile_result["data"])
+			await _show_lobby(profile_result["data"].get("profile", {}))
 			return
 		api_client.clear_session()
 
 	_show_auth_ui()
 
 
-func _start_gameplay(data: Dictionary) -> void:
-	if auth_layer:
-		auth_layer.queue_free()
-		auth_layer = null
-
-	print("Authenticated user: ", data.get("profile", {}))
-	print("Loaded assets: ", data.get("assets", {}))
-
-	_ensure_gameplay_ui()
-	var profile_data: Dictionary = data.get("profile", {})
-	account_label.text = "Connected as: %s" % str(profile_data.get("username", "unknown"))
-
-	var connect_result := await api_client.connect_session()
-	if not connect_result.get("ok", false):
-		_show_error(connect_result)
-	else:
-		online_label.text = "Online players: syncing..."
-
-	await api_client.fetch_online_users()
-	if presence_poll_timer:
-		presence_poll_timer.start()
-
-	spawn_from_state({
-		"players": [
-			{
-				"id": "local",
-				"position": Vector2(196, 143),
-				"is_local": true,
-			}
-		],
-		"entities": [
-			{
-				"id": "enemy_1",
-				"type": "enemy",
-				"position": Vector2(221, 156),
-			}
-		]
-	})
-
-
-func _ensure_gameplay_ui() -> void:
-	if gameplay_ui_layer:
-		return
-
-	gameplay_ui_layer = CanvasLayer.new()
-	add_child(gameplay_ui_layer)
-
-	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	gameplay_ui_layer.add_child(root)
-
-	var panel := PanelContainer.new()
-	panel.position = Vector2(12, 12)
-	panel.custom_minimum_size = Vector2(270, 90)
-	root.add_child(panel)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
-
-	account_label = Label.new()
-	account_label.text = "Connected as: -"
-	vbox.add_child(account_label)
-
-	online_label = Label.new()
-	online_label.text = "Online players: -"
-	vbox.add_child(online_label)
-
-	logout_button = Button.new()
-	logout_button.text = "Disconnect"
-	logout_button.pressed.connect(_on_logout_pressed)
-	vbox.add_child(logout_button)
-
-	presence_poll_timer = Timer.new()
-	presence_poll_timer.wait_time = 2.0
-	presence_poll_timer.one_shot = false
-	presence_poll_timer.timeout.connect(_on_presence_poll_timeout)
-	add_child(presence_poll_timer)
-
-
-func _on_presence_poll_timeout() -> void:
-	await api_client.fetch_online_users()
-
-
-func _on_presence_changed(online: Array, count: int) -> void:
-	var names: PackedStringArray = []
-	for item in online:
-		if item is Dictionary:
-			names.append(str(item.get("username", "unknown")))
-	online_label.text = "Online players (%d): %s" % [count, ", ".join(names)]
-
-
-func _on_logout_pressed() -> void:
-	if presence_poll_timer:
-		presence_poll_timer.stop()
-	await api_client.logout()
-	if gameplay_ui_layer:
-		gameplay_ui_layer.queue_free()
-		gameplay_ui_layer = null
-	account_label = null
-	online_label = null
-	logout_button = null
-	_clear_world()
-	_show_auth_ui()
-
-
-func _clear_world() -> void:
-	for player in players.values():
-		if is_instance_valid(player):
-			player.queue_free()
-	players.clear()
-
-	for entity in entities.values():
-		if is_instance_valid(entity):
-			entity.queue_free()
-	entities.clear()
-
-
 func _show_auth_ui() -> void:
+	if lobby_layer:
+		lobby_layer.queue_free()
+		lobby_layer = null
+
 	auth_layer = CanvasLayer.new()
 	add_child(auth_layer)
 
@@ -230,6 +125,292 @@ func _show_auth_ui() -> void:
 	vbox.add_child(status_label)
 
 
+func _show_lobby(account_profile: Dictionary) -> void:
+	current_account = account_profile
+	if auth_layer:
+		auth_layer.queue_free()
+		auth_layer = null
+	if gameplay_ui_layer:
+		gameplay_ui_layer.queue_free()
+		gameplay_ui_layer = null
+
+	_clear_world()
+
+	if lobby_layer == null:
+		lobby_layer = CanvasLayer.new()
+		add_child(lobby_layer)
+		var root := Control.new()
+		root.set_anchors_preset(Control.PRESET_FULL_RECT)
+		lobby_layer.add_child(root)
+
+		var panel := PanelContainer.new()
+		panel.custom_minimum_size = Vector2(430, 240)
+		panel.position = Vector2(40, 40)
+		root.add_child(panel)
+
+		var vbox := VBoxContainer.new()
+		vbox.add_theme_constant_override("separation", 8)
+		panel.add_child(vbox)
+
+		var title := Label.new()
+		title.text = "Create/Select profile then click Play"
+		vbox.add_child(title)
+
+		var account_label_local := Label.new()
+		account_label_local.text = "Logged in as: %s" % str(account_profile.get("username", "unknown"))
+		vbox.add_child(account_label_local)
+
+		var create_row := HBoxContainer.new()
+		vbox.add_child(create_row)
+
+		profile_name_input = LineEdit.new()
+		profile_name_input.placeholder_text = "new profile display name"
+		profile_name_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		create_row.add_child(profile_name_input)
+
+		var create_button := Button.new()
+		create_button.text = "Create Profile"
+		create_button.pressed.connect(_on_create_profile_pressed)
+		create_row.add_child(create_button)
+
+		profile_select = OptionButton.new()
+		profile_select.item_selected.connect(_on_profile_selected)
+		vbox.add_child(profile_select)
+
+		var action_row := HBoxContainer.new()
+		vbox.add_child(action_row)
+
+		var play_button := Button.new()
+		play_button.text = "Play"
+		play_button.pressed.connect(_on_play_pressed)
+		action_row.add_child(play_button)
+
+		var logout_button := Button.new()
+		logout_button.text = "Logout"
+		logout_button.pressed.connect(_on_logout_pressed)
+		action_row.add_child(logout_button)
+
+		lobby_status_label = Label.new()
+		lobby_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lobby_status_label.text = "Create or select a profile to continue."
+		vbox.add_child(lobby_status_label)
+
+	await _refresh_profile_list()
+
+
+func _refresh_profile_list() -> void:
+	if profile_select == null:
+		return
+
+	profile_select.clear()
+	profile_map.clear()
+	profile_ids.clear()
+	selected_profile_id = ""
+
+	var list_result := await api_client.list_profiles()
+	if not list_result.get("ok", false):
+		_show_lobby_error(list_result)
+		return
+
+	var profiles: Array = list_result["data"].get("profiles", [])
+	for entry in profiles:
+		if entry is Dictionary:
+			var profile_entry: Dictionary = entry
+			var player_id := str(profile_entry.get("player_id", ""))
+			var label := str(profile_entry.get("display_name", "Unnamed"))
+			if not player_id.is_empty():
+				profile_select.add_item("%s (%s)" % [label, player_id.substr(0, 6)])
+				profile_map[player_id] = profile_entry
+				profile_ids.append(player_id)
+
+	if profile_select.item_count > 0:
+		profile_select.selected = 0
+		selected_profile_id = profile_ids[0]
+		lobby_status_label.text = "Profile selected. Click Play to start the game."
+	else:
+		lobby_status_label.text = "No profiles yet. Create one, then click Play."
+
+
+func _on_profile_selected(index: int) -> void:
+	if index < 0 or index >= profile_ids.size():
+		selected_profile_id = ""
+		return
+	selected_profile_id = profile_ids[index]
+	lobby_status_label.text = "Profile selected. Click Play to start the game."
+
+
+func _on_create_profile_pressed() -> void:
+	var display_name := profile_name_input.text.strip_edges()
+	if display_name.is_empty():
+		lobby_status_label.text = "Display name is required"
+		return
+
+	var create_result := await api_client.create_profile(display_name)
+	if not create_result.get("ok", false):
+		_show_lobby_error(create_result)
+		return
+
+	profile_name_input.text = ""
+	lobby_status_label.text = "Profile created."
+	await _refresh_profile_list()
+
+
+func _on_play_pressed() -> void:
+	if selected_profile_id.is_empty():
+		lobby_status_label.text = "Select or create a profile first"
+		return
+
+	var selected_profile: Dictionary = profile_map.get(selected_profile_id, {})
+	if selected_profile.is_empty():
+		lobby_status_label.text = "Selected profile not found"
+		return
+
+	await _start_gameplay(selected_profile)
+
+
+func _start_gameplay(selected_profile: Dictionary) -> void:
+	if lobby_layer:
+		lobby_layer.queue_free()
+		lobby_layer = null
+
+	_ensure_gameplay_ui()
+	account_label.text = "Connected as %s / %s" % [
+		str(current_account.get("username", "unknown")),
+		str(selected_profile.get("display_name", "profile")),
+	]
+
+	var connect_result := await api_client.connect_session()
+	if not connect_result.get("ok", false):
+		_show_error(connect_result)
+		await _show_lobby(current_account)
+		return
+
+	await api_client.fetch_online_users()
+	await _refresh_world_state(selected_profile)
+
+	if presence_poll_timer:
+		presence_poll_timer.start()
+	if world_poll_timer:
+		world_poll_timer.start()
+
+
+func _refresh_world_state(selected_profile: Dictionary) -> void:
+	var world_result := await api_client.fetch_world_state()
+	if not world_result.get("ok", false):
+		_show_error(world_result)
+		return
+
+	var players_payload: Array = []
+	for entry in world_result["data"].get("players", []):
+		if entry is Dictionary:
+			var item: Dictionary = entry
+			players_payload.append({
+				"id": str(item.get("player_id", "")),
+				"position": item.get("position", {"x": 0.0, "y": 0.0}),
+				"is_local": str(item.get("player_id", "")) == str(selected_profile.get("player_id", "")),
+			})
+
+	_clear_world()
+	spawn_from_state({
+		"players": players_payload,
+		"entities": [],
+	})
+
+
+func _ensure_gameplay_ui() -> void:
+	if gameplay_ui_layer:
+		return
+
+	gameplay_ui_layer = CanvasLayer.new()
+	add_child(gameplay_ui_layer)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	gameplay_ui_layer.add_child(root)
+
+	var panel := PanelContainer.new()
+	panel.position = Vector2(12, 12)
+	panel.custom_minimum_size = Vector2(320, 110)
+	root.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	account_label = Label.new()
+	account_label.text = "Connected as: -"
+	vbox.add_child(account_label)
+
+	online_label = Label.new()
+	online_label.text = "Online players: -"
+	vbox.add_child(online_label)
+
+	back_to_lobby_button = Button.new()
+	back_to_lobby_button.text = "Back to profile selection"
+	back_to_lobby_button.pressed.connect(_on_back_to_lobby_pressed)
+	vbox.add_child(back_to_lobby_button)
+
+	presence_poll_timer = Timer.new()
+	presence_poll_timer.wait_time = 2.0
+	presence_poll_timer.one_shot = false
+	presence_poll_timer.timeout.connect(_on_presence_poll_timeout)
+	add_child(presence_poll_timer)
+
+	world_poll_timer = Timer.new()
+	world_poll_timer.wait_time = 2.0
+	world_poll_timer.one_shot = false
+	world_poll_timer.timeout.connect(_on_world_poll_timeout)
+	add_child(world_poll_timer)
+
+
+func _on_presence_poll_timeout() -> void:
+	await api_client.fetch_online_users()
+
+
+func _on_world_poll_timeout() -> void:
+	if selected_profile_id.is_empty():
+		return
+	var selected_profile: Dictionary = profile_map.get(selected_profile_id, {})
+	if selected_profile.is_empty():
+		return
+	await _refresh_world_state(selected_profile)
+
+
+func _on_presence_changed(online: Array, count: int) -> void:
+	if online_label == null:
+		return
+	var names: PackedStringArray = []
+	for item in online:
+		if item is Dictionary:
+			names.append(str(item.get("username", "unknown")))
+	online_label.text = "Online players (%d): %s" % [count, ", ".join(names)]
+
+
+func _on_back_to_lobby_pressed() -> void:
+	if presence_poll_timer:
+		presence_poll_timer.stop()
+	if world_poll_timer:
+		world_poll_timer.stop()
+	await api_client.disconnect_session()
+	await _show_lobby(current_account)
+
+
+func _on_logout_pressed() -> void:
+	if presence_poll_timer:
+		presence_poll_timer.stop()
+	if world_poll_timer:
+		world_poll_timer.stop()
+	await api_client.logout()
+	if gameplay_ui_layer:
+		gameplay_ui_layer.queue_free()
+		gameplay_ui_layer = null
+	account_label = null
+	online_label = null
+	back_to_lobby_button = null
+	_clear_world()
+	_show_auth_ui()
+
+
 func _on_login_pressed() -> void:
 	_set_status("Logging in...")
 	var login_result := await api_client.login_user(credential_input.text, password_input.text)
@@ -237,13 +418,12 @@ func _on_login_pressed() -> void:
 		_show_error(login_result)
 		return
 
-	_set_status("Login success. Loading profile...")
 	var profile_result := await api_client.fetch_profile()
 	if not profile_result.get("ok", false):
 		_show_error(profile_result)
 		return
 
-	await _start_gameplay(profile_result["data"])
+	await _show_lobby(profile_result["data"].get("profile", {}))
 
 
 func _on_register_pressed() -> void:
@@ -253,23 +433,41 @@ func _on_register_pressed() -> void:
 		_show_error(register_result)
 		return
 
-	_set_status("Registration success. Loading profile...")
 	var profile_result := await api_client.fetch_profile()
 	if not profile_result.get("ok", false):
 		_show_error(profile_result)
 		return
 
-	await _start_gameplay(profile_result["data"])
+	await _show_lobby(profile_result["data"].get("profile", {}))
+
+
+func _show_lobby_error(result: Dictionary) -> void:
+	var error_data: Dictionary = result.get("error", {})
+	if lobby_status_label:
+		lobby_status_label.text = "%s: %s" % [error_data.get("code", "UNKNOWN_ERROR"), error_data.get("message", "Request failed")]
 
 
 func _show_error(result: Dictionary) -> void:
 	var error_data: Dictionary = result.get("error", {})
 	_set_status("%s: %s" % [error_data.get("code", "UNKNOWN_ERROR"), error_data.get("message", "Request failed")])
+	_show_lobby_error(result)
 
 
 func _set_status(message: String) -> void:
 	if status_label:
 		status_label.text = message
+
+
+func _clear_world() -> void:
+	for player in players.values():
+		if is_instance_valid(player):
+			player.queue_free()
+	players.clear()
+
+	for entity in entities.values():
+		if is_instance_valid(entity):
+			entity.queue_free()
+	entities.clear()
 
 
 func spawn_from_state(payload: Dictionary) -> void:
