@@ -624,6 +624,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/combat/hit":
             self._handle_combat_hit()
             return
+        if self.path == "/play/start":
+            self._handle_play_start()
+            return
         err(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Endpoint not found")
 
     def do_OPTIONS(self) -> None:
@@ -851,6 +854,33 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.BAD_REQUEST, str(result), "Hit rejected by server rules")
             return
         ok(self, {"combat": result})
+
+    def _handle_play_start(self) -> None:
+        user_id = self._auth_user_id()
+        if not user_id:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
+            return
+
+        payload = self._read_json()
+        player_id = str(payload.get("player_id", "")).strip()
+        if not player_id:
+            err(self, HTTPStatus.BAD_REQUEST, "VALIDATION_ERROR", "player_id is required")
+            return
+
+        profile = self.db.get_profile(player_id)
+        if not profile or profile["user_id"] != user_id:
+            err(self, HTTPStatus.FORBIDDEN, "FORBIDDEN", "Profile not owned by this user")
+            return
+
+        self.presence.connect(user_id)
+        ok(self, {
+            "started": True,
+            "player": {
+                "player_id": profile["player_id"],
+                "display_name": profile["display_name"],
+                "position": profile["position"],
+            },
+        })
 
     def _handle_connect(self) -> None:
         user_id = self._auth_user_id()

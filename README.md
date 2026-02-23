@@ -13,8 +13,8 @@ Then open `http://127.0.0.1:8080` in your browser.
 To test multi-account PvP:
 1. Open multiple tabs/windows.
 2. Register account(s), then **login** (register no longer auto-login).
-3. After login, create/select a profile, then click **Play**.
-4. Connect each session and move players near each other.
+3. After login, create/select a profile, then click **Play** (this starts the selected profile session).
+4. Move players near each other from each tab.
 5. Use **Hit** in one tab to apply knockback on another player's profile.
 
 ## Database design note

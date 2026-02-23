@@ -215,10 +215,19 @@ function bindEvents() {
       playStatus.textContent = "Please create/select a profile first.";
       return;
     }
-    state.playing = true;
-    updateUiState();
-    playStatus.textContent = `Playing with profile ${state.activeProfileId.slice(0, 6)}.`;
-    await refreshWorld();
+    try {
+      const started = await api("/play/start", "POST", {
+        player_id: state.activeProfileId,
+      });
+      state.playing = true;
+      updateUiState();
+      playStatus.textContent = `Playing as ${started.player.display_name}.`;
+      log("Play started", started);
+      await refreshWorld();
+    } catch (error) {
+      playStatus.textContent = `Play failed: ${error.message}`;
+      log(`Play failed: ${error.message}`);
+    }
   });
 
   byId("connectBtn").addEventListener("click", async () => {
