@@ -15,10 +15,11 @@ func _ready() -> void:
 	add_to_group("player")
 
 
-func _physics_process(delta: float) -> void:
-	if is_local_player:
-		input_dto = _collect_local_input()
+func _physics_process(_delta: float) -> void:
+	if not is_local_player:
+		return
 
+	input_dto = _collect_local_input()
 	_run_simulation(input_dto)
 	move_and_slide()
 
@@ -59,6 +60,15 @@ func set_input_dto(dto: Dictionary) -> void:
 	input_dto = dto
 
 
+func get_net_state() -> Dictionary:
+	return {
+		"position": {"x": global_position.x, "y": global_position.y},
+		"velocity": {"x": velocity.x, "y": velocity.y},
+		"last_dir": {"x": last_dir.x, "y": last_dir.y},
+		"attack_pressed": bool(input_dto.get("attack_pressed", false)),
+	}
+
+
 func apply_snapshot(snapshot: Dictionary) -> void:
 	if snapshot.has("position"):
 		global_position = _to_vector2(snapshot["position"])
@@ -69,20 +79,9 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 	elif snapshot.has("aim"):
 		last_dir = _to_vector2(snapshot["aim"]).normalized()
 
-	if snapshot.has("sword_position"):
-		$sword.position = _to_vector2(snapshot["sword_position"])
-	else:
-		$sword.position = last_dir * radius
-
-	if snapshot.has("sword_rotation"):
-		$sword.rotation = float(snapshot["sword_rotation"])
-	else:
-		$sword.rotation = last_dir.angle()
-
-	if snapshot.has("flip_h"):
-		anim.flip_h = bool(snapshot["flip_h"])
-	else:
-		anim.flip_h = last_dir.x < 0
+	$sword.position = _to_vector2(snapshot.get("sword_position", last_dir * radius))
+	$sword.rotation = float(snapshot.get("sword_rotation", last_dir.angle()))
+	anim.flip_h = bool(snapshot.get("flip_h", last_dir.x < 0))
 
 	if snapshot.has("animation"):
 		var animation_name: String = snapshot["animation"]
@@ -97,6 +96,15 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 
 	if snapshot.get("attack_pressed", false) or snapshot.get("is_attacking", false):
 		sanim.play("swing")
+
+
+func play_anim() -> void:
+	if sanim:
+		sanim.play("swing")
+
+
+func apply_knockback(direction: Vector2, force: float, _knockback_dur: float) -> void:
+	global_position += direction * force
 
 
 func _to_vector2(raw_value: Variant) -> Vector2:
