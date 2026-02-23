@@ -26,12 +26,14 @@ var current_account: Dictionary = {}
 var gameplay_ui_layer: CanvasLayer
 var account_label: Label
 var online_label: Label
+var coordinate_monitor_label: Label
 var back_to_lobby_button: Button
 var presence_poll_timer: Timer
 var world_poll_timer: Timer
 var position_sync_timer: Timer
 
 var _last_synced_position := Vector2.ZERO
+var _spawn_position := Vector2.ZERO
 var _position_sync_in_flight := false
 
 func _ready() -> void:
@@ -50,6 +52,10 @@ func _ready() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		_disconnect_presence_no_wait()
+
+
+func _process(_delta: float) -> void:
+	_update_coordinate_monitor()
 
 
 func _disconnect_presence_no_wait() -> void:
@@ -303,6 +309,8 @@ func _start_gameplay(selected_profile: Dictionary) -> void:
 		float(selected_profile.get("position", {}).get("x", 0.0)),
 		float(selected_profile.get("position", {}).get("y", 0.0))
 	)
+	_spawn_position = _last_synced_position
+	_update_coordinate_monitor()
 
 
 func _refresh_world_state(selected_profile: Dictionary) -> void:
@@ -389,6 +397,11 @@ func _ensure_gameplay_ui() -> void:
 	online_label.text = "Online players: -"
 	vbox.add_child(online_label)
 
+	coordinate_monitor_label = Label.new()
+	coordinate_monitor_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	coordinate_monitor_label.text = "Position monitor: waiting for local player"
+	vbox.add_child(coordinate_monitor_label)
+
 	back_to_lobby_button = Button.new()
 	back_to_lobby_button.text = "Back to profile selection"
 	back_to_lobby_button.pressed.connect(_on_back_to_lobby_pressed)
@@ -442,6 +455,7 @@ func _on_position_sync_timeout() -> void:
 	if result.get("ok", false):
 		_last_synced_position = local_player.global_position
 	_position_sync_in_flight = false
+	_update_coordinate_monitor()
 
 
 func _on_presence_changed(online: Array, count: int) -> void:
@@ -478,6 +492,7 @@ func _on_logout_pressed() -> void:
 		gameplay_ui_layer = null
 	account_label = null
 	online_label = null
+	coordinate_monitor_label = null
 	back_to_lobby_button = null
 	_clear_world()
 	_show_auth_ui()
@@ -540,6 +555,29 @@ func _clear_world() -> void:
 		if is_instance_valid(entity):
 			entity.queue_free()
 	entities.clear()
+	_update_coordinate_monitor()
+
+
+func _update_coordinate_monitor() -> void:
+	if coordinate_monitor_label == null:
+		return
+
+	var local_player: CharacterBody2D = players.get(selected_profile_id)
+	if local_player == null or not is_instance_valid(local_player):
+		coordinate_monitor_label.text = "Position monitor: waiting for local player"
+		return
+
+	var local_position := local_player.global_position
+	var distance_to_spawn := local_position.distance_to(_spawn_position)
+	coordinate_monitor_label.text = "Local: (%.1f, %.1f) | Spawn: (%.1f, %.1f) | Last synced: (%.1f, %.1f) | Dist to spawn: %.1f" % [
+		local_position.x,
+		local_position.y,
+		_spawn_position.x,
+		_spawn_position.y,
+		_last_synced_position.x,
+		_last_synced_position.y,
+		distance_to_spawn,
+	]
 
 
 func spawn_from_state(payload: Dictionary) -> void:
