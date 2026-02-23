@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import mimetypes
 import secrets
 import sqlite3
 import threading
@@ -11,8 +12,10 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlparse
 
 DATA_DIR = Path(__file__).parent / "data"
+WEB_DIR = Path(__file__).parent / "web"
 DB_PATH = DATA_DIR / "game.db"
 SESSION_TTL_SECONDS = 60 * 60  # 1 hour
 MAX_HIT_DISTANCE = 3.0
@@ -353,6 +356,17 @@ class DB:
             return None
         return self._row_to_profile(row)
 
+    def list_all_profiles(self) -> list[dict]:
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT player_id, user_id, display_name, skill_id, equipped_weapon_id, pos_x, pos_y,
+                       can_receive_pvp_knockback, attributes_json, assets_json, created_at
+                FROM player_profiles ORDER BY created_at ASC
+                """
+            ).fetchall()
+        return [self._row_to_profile(r) for r in rows]
+
     def _row_to_profile(self, row: sqlite3.Row) -> dict:
         return {
             "player_id": row["player_id"],
@@ -543,6 +557,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args) -> None:
         return
 
+    def end_headers(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        super().end_headers()
+
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length) if length > 0 else b"{}"
@@ -606,26 +626,59 @@ class Handler(BaseHTTPRequestHandler):
             return
         err(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Endpoint not found")
 
+    def do_OPTIONS(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.end_headers()
+
     def do_GET(self) -> None:
-        if self.path == "/profile/me":
+        parsed = urlparse(self.path)
+        clean_path = parsed.path
+
+        if clean_path == "/" or clean_path == "/index.html":
+            self._serve_static("index.html")
+            return
+        if clean_path.startswith("/assets/"):
+            rel_path = clean_path.removeprefix("/")
+            self._serve_static(rel_path)
+            return
+
+        if clean_path == "/profile/me":
             self._handle_profile_me()
             return
-        if self.path == "/profiles":
+        if clean_path == "/profiles":
             self._handle_list_profiles()
             return
-        if self.path == "/session/online":
+        if clean_path == "/world/state":
+            self._handle_world_state()
+            return
+        if clean_path == "/session/online":
             self._handle_online()
             return
-        if self.path == "/catalog/weapons":
+        if clean_path == "/catalog/weapons":
             self._handle_list_weapons()
             return
-        if self.path == "/catalog/skills":
+        if clean_path == "/catalog/skills":
             self._handle_list_skills()
             return
-        if self.path == "/catalog/quests":
+        if clean_path == "/catalog/quests":
             self._handle_list_quests()
             return
         err(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Endpoint not found")
+
+    def _serve_static(self, relative_path: str) -> None:
+        requested = (WEB_DIR / relative_path).resolve()
+        web_root = WEB_DIR.resolve()
+        if not str(requested).startswith(str(web_root)) or not requested.is_file():
+            err(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Static file not found")
+            return
+
+        content_type = mimetypes.guess_type(requested.name)[0] or "application/octet-stream"
+        content = requested.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
 
     def _handle_register(self) -> None:
         payload = self._read_json()
@@ -857,6 +910,31 @@ class Handler(BaseHTTPRequestHandler):
         ok(self, {
             "online": online_payload,
             "count": len(online_payload),
+        })
+
+    def _handle_world_state(self) -> None:
+        user_id = self._auth_user_id()
+        if not user_id:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
+            return
+
+        self.presence.touch(user_id)
+        all_profiles = self.db.list_all_profiles()
+        online_user_ids = set(self.presence.online_user_ids().keys())
+        world_players = []
+        for profile in all_profiles:
+            world_players.append({
+                "player_id": profile["player_id"],
+                "user_id": profile["user_id"],
+                "display_name": profile["display_name"],
+                "equipped_weapon_id": profile["equipped_weapon_id"],
+                "position": profile["position"],
+                "online": profile["user_id"] in online_user_ids,
+            })
+
+        ok(self, {
+            "players": world_players,
+            "count": len(world_players),
         })
 
     def _handle_list_weapons(self) -> None:
