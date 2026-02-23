@@ -310,11 +310,44 @@ func _refresh_world_state(selected_profile: Dictionary) -> void:
 				"is_local": str(item.get("player_id", "")) == str(selected_profile.get("player_id", "")),
 			})
 
-	_clear_world()
-	spawn_from_state({
+	_apply_world_state({
 		"players": players_payload,
 		"entities": [],
 	})
+
+
+func _apply_world_state(payload: Dictionary) -> void:
+	var seen_player_ids: Dictionary = {}
+	for player_payload in payload.get("players", []):
+		var id := str(player_payload.get("id", ""))
+		if id.is_empty():
+			continue
+		seen_player_ids[id] = true
+		_spawn_or_update_player(player_payload)
+
+	for id in players.keys():
+		if seen_player_ids.has(id):
+			continue
+		var stale_player: CharacterBody2D = players.get(id)
+		if is_instance_valid(stale_player):
+			stale_player.queue_free()
+		players.erase(id)
+
+	var seen_entity_ids: Dictionary = {}
+	for entity_payload in payload.get("entities", []):
+		var entity_id := str(entity_payload.get("id", ""))
+		if entity_id.is_empty():
+			continue
+		seen_entity_ids[entity_id] = true
+		_spawn_or_update_entity(entity_payload)
+
+	for entity_id in entities.keys():
+		if seen_entity_ids.has(entity_id):
+			continue
+		var stale_entity: Node2D = entities.get(entity_id)
+		if is_instance_valid(stale_entity):
+			stale_entity.queue_free()
+		entities.erase(entity_id)
 
 
 func _ensure_gameplay_ui() -> void:
