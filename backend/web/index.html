@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Combat Test Web</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <main class="app">
+    <h1>Combat Test (Web)</h1>
+    <p class="hint">Open this page in multiple tabs and login with different accounts to see and hit each other.</p>
+
+    <section class="card">
+      <h2>Auth</h2>
+      <div class="row">
+        <input id="credential" placeholder="username or email" />
+        <input id="password" type="password" placeholder="password" />
+      </div>
+      <div class="row">
+        <input id="username" placeholder="register username" />
+        <input id="email" placeholder="register email" />
+      </div>
+      <div class="row buttons">
+        <button id="registerBtn">Register</button>
+        <button id="loginBtn">Login</button>
+        <button id="logoutBtn">Logout</button>
+      </div>
+      <p id="authStatus">Not logged in</p>
+    </section>
+
+    <section class="card">
+      <h2>Profile</h2>
+      <div class="row">
+        <input id="displayName" placeholder="new display name" />
+        <button id="createProfileBtn">Create Profile</button>
+      </div>
+      <div class="row">
+        <label for="profileSelect">Active profile:</label>
+        <select id="profileSelect"></select>
+      </div>
+      <div class="row buttons">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn">Disconnect</button>
+      </div>
+      <div class="row">
+        <label>X <input id="posX" type="number" value="0" step="0.5"></label>
+        <label>Y <input id="posY" type="number" value="0" step="0.5"></label>
+        <button id="moveBtn">Update Position</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>World players</h2>
+      <button id="refreshBtn">Refresh</button>
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>User</th>
+            <th>Position</th>
+            <th>Online</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="worldBody"></tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Logs</h2>
+      <pre id="logs"></pre>
+    </section>
+  </main>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
