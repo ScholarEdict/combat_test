@@ -49,6 +49,8 @@ th, td {
 }
 
 .hint { color: #cfcfcf; }
+.hidden { display: none; }
+
 #logs {
   min-height: 120px;
   white-space: pre-wrap;

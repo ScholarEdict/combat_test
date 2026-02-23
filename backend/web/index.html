@@ -9,10 +9,10 @@
 <body>
   <main class="app">
     <h1>Combat Test (Web)</h1>
-    <p class="hint">Open this page in multiple tabs and login with different accounts to see and hit each other.</p>
+    <p class="hint">Flow: login/register → create/select profile → click Play to enter world.</p>
 
-    <section class="card">
-      <h2>Auth</h2>
+    <section id="authCard" class="card">
+      <h2>Step 1: Login</h2>
       <div class="row">
         <input id="credential" placeholder="username or email" />
         <input id="password" type="password" placeholder="password" />
@@ -24,47 +24,57 @@
       <div class="row buttons">
         <button id="registerBtn">Register</button>
         <button id="loginBtn">Login</button>
-        <button id="logoutBtn">Logout</button>
       </div>
       <p id="authStatus">Not logged in</p>
     </section>
 
-    <section class="card">
-      <h2>Profile</h2>
+    <section id="lobbyCard" class="card hidden">
+      <h2>Step 2: Create or Select Profile</h2>
       <div class="row">
         <input id="displayName" placeholder="new display name" />
         <button id="createProfileBtn">Create Profile</button>
       </div>
       <div class="row">
-        <label for="profileSelect">Active profile:</label>
+        <label for="profileSelect">Selected profile:</label>
         <select id="profileSelect"></select>
       </div>
       <div class="row buttons">
-        <button id="connectBtn">Connect</button>
-        <button id="disconnectBtn">Disconnect</button>
+        <button id="playBtn">Play</button>
+        <button id="logoutBtn">Logout</button>
       </div>
-      <div class="row">
-        <label>X <input id="posX" type="number" value="0" step="0.5"></label>
-        <label>Y <input id="posY" type="number" value="0" step="0.5"></label>
-        <button id="moveBtn">Update Position</button>
-      </div>
+      <p id="lobbyStatus" class="hint">Create or select a profile, then click Play.</p>
     </section>
 
-    <section class="card">
-      <h2>World players</h2>
-      <button id="refreshBtn">Refresh</button>
-      <table>
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>User</th>
-            <th>Position</th>
-            <th>Online</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody id="worldBody"></tbody>
-      </table>
+    <section id="gameCard" class="hidden">
+      <section class="card">
+        <h2>In Game</h2>
+        <div class="row buttons">
+          <button id="changeProfileBtn">Back to Profile Selection</button>
+          <button id="disconnectBtn">Disconnect</button>
+        </div>
+        <div class="row">
+          <label>X <input id="posX" type="number" value="0" step="0.5"></label>
+          <label>Y <input id="posY" type="number" value="0" step="0.5"></label>
+          <button id="moveBtn">Update Position</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>World players</h2>
+        <button id="refreshBtn">Refresh</button>
+        <table>
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>User</th>
+              <th>Position</th>
+              <th>Online</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="worldBody"></tbody>
+        </table>
+      </section>
     </section>
 
     <section class="card">
