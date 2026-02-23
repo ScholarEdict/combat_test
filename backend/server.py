@@ -102,6 +102,44 @@ class SessionStore:
                 return None
             return session["user_id"]
 
+    def destroy(self, sid: str | None) -> bool:
+        if not sid:
+            return False
+        with self._lock:
+            if sid not in self._sessions:
+                return False
+            del self._sessions[sid]
+            return True
+
+
+class PresenceStore:
+    def __init__(self) -> None:
+        self._presence_by_user: dict[str, dict] = {}
+        self._lock = threading.Lock()
+
+    def connect(self, user_id: str) -> None:
+        now = int(time.time())
+        with self._lock:
+            self._presence_by_user[user_id] = {
+                "connected_at": now,
+                "last_seen": now,
+            }
+
+    def disconnect(self, user_id: str) -> None:
+        with self._lock:
+            if user_id in self._presence_by_user:
+                del self._presence_by_user[user_id]
+
+    def touch(self, user_id: str) -> None:
+        now = int(time.time())
+        with self._lock:
+            if user_id in self._presence_by_user:
+                self._presence_by_user[user_id]["last_seen"] = now
+
+    def online_user_ids(self) -> dict[str, dict]:
+        with self._lock:
+            return dict(self._presence_by_user)
+
 
 def _hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
@@ -120,6 +158,7 @@ def _verify_password(password: str, encoded: str) -> bool:
 class Handler(BaseHTTPRequestHandler):
     user_store: UserStore
     sessions: SessionStore
+    presence: PresenceStore
 
     def log_message(self, *_args) -> None:
         return
@@ -152,13 +191,31 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/auth/login":
             self._handle_login()
             return
+        if self.path == "/session/connect":
+            self._handle_connect()
+            return
+        if self.path == "/session/disconnect":
+            self._handle_disconnect()
+            return
+        if self.path == "/auth/logout":
+            self._handle_logout()
+            return
         err(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Endpoint not found")
 
     def do_GET(self) -> None:
         if self.path == "/profile/me":
             self._handle_profile_me()
             return
+        if self.path == "/session/online":
+            self._handle_online()
+            return
         err(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Endpoint not found")
+
+    def _find_user_by_id(self, user_id: str) -> dict | None:
+        for candidate in self.user_store._users["users"]:
+            if candidate["id"] == user_id:
+                return candidate
+        return None
 
     def _handle_register(self) -> None:
         payload = self._read_json()
@@ -213,11 +270,7 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid session required")
             return
 
-        user = None
-        for candidate in self.user_store._users["users"]:
-            if candidate["id"] == user_id:
-                user = candidate
-                break
+        user = self._find_user_by_id(user_id)
 
         if not user:
             err(self, HTTPStatus.NOT_FOUND, "USER_NOT_FOUND", "User account not found")
@@ -233,10 +286,72 @@ class Handler(BaseHTTPRequestHandler):
             "assets": user["assets"],
         })
 
+    def _handle_connect(self) -> None:
+        sid = self._session_id()
+        user_id = self.sessions.resolve(sid)
+        if not user_id:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid session required")
+            return
+
+        self.presence.connect(user_id)
+        user = self._find_user_by_id(user_id)
+        ok(self, {
+            "connected": True,
+            "user": {
+                "id": user_id,
+                "username": user.get("username", "") if user else "",
+            }
+        })
+
+    def _handle_disconnect(self) -> None:
+        sid = self._session_id()
+        user_id = self.sessions.resolve(sid)
+        if not user_id:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid session required")
+            return
+
+        self.presence.disconnect(user_id)
+        ok(self, {"disconnected": True})
+
+    def _handle_logout(self) -> None:
+        sid = self._session_id()
+        user_id = self.sessions.resolve(sid)
+        if user_id:
+            self.presence.disconnect(user_id)
+        self.sessions.destroy(sid)
+        clear_cookie = "session_id=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+        ok(self, {"logged_out": True}, set_cookie=clear_cookie)
+
+    def _handle_online(self) -> None:
+        sid = self._session_id()
+        user_id = self.sessions.resolve(sid)
+        if not user_id:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid session required")
+            return
+
+        self.presence.touch(user_id)
+        online_payload = []
+        for online_user_id, presence in self.presence.online_user_ids().items():
+            user = self._find_user_by_id(online_user_id)
+            if not user:
+                continue
+            online_payload.append({
+                "id": online_user_id,
+                "username": user["username"],
+                "connected_at": presence.get("connected_at", 0),
+                "last_seen": presence.get("last_seen", 0),
+            })
+
+        ok(self, {
+            "online": online_payload,
+            "count": len(online_payload),
+        })
+
 
 def run(host: str, port: int) -> None:
     Handler.user_store = UserStore(USERS_PATH)
     Handler.sessions = SessionStore()
+    Handler.presence = PresenceStore()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Auth API listening on http://{host}:{port}")
     server.serve_forever()

@@ -2,6 +2,7 @@ extends Node
 class_name ApiClient
 
 signal authenticated(profile: Dictionary, assets: Dictionary)
+signal presence_changed(online: Array, count: int)
 
 const SESSION_PATH := "user://session.cfg"
 
@@ -27,6 +28,8 @@ func load_session() -> void:
 
 func clear_session() -> void:
 	session_token = ""
+	profile = {}
+	assets = {}
 	var cfg := ConfigFile.new()
 	cfg.set_value("auth", "token", "")
 	cfg.save(SESSION_PATH)
@@ -59,6 +62,30 @@ func fetch_profile() -> Dictionary:
 		profile = response["data"].get("profile", {})
 		assets = response["data"].get("assets", {})
 		emit_signal("authenticated", profile, assets)
+	return response
+
+
+func connect_session() -> Dictionary:
+	return await _request_json("/session/connect", HTTPClient.METHOD_POST)
+
+
+func disconnect_session() -> Dictionary:
+	return await _request_json("/session/disconnect", HTTPClient.METHOD_POST)
+
+
+func logout() -> Dictionary:
+	var response := await _request_json("/auth/logout", HTTPClient.METHOD_POST)
+	if response.get("ok", false):
+		clear_session()
+	return response
+
+
+func fetch_online_users() -> Dictionary:
+	var response := await _request_json("/session/online", HTTPClient.METHOD_GET)
+	if response.get("ok", false):
+		var online: Array = response["data"].get("online", [])
+		var count := int(response["data"].get("count", online.size()))
+		emit_signal("presence_changed", online, count)
 	return response
 
 
