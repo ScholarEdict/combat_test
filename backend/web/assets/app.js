@@ -1,88 +1,69 @@
 const state = {
   token: localStorage.getItem("session_token") || "",
-  profiles: [],
   activeProfileId: localStorage.getItem("active_profile_id") || "",
+  profiles: [],
   playing: false,
 };
 
 const byId = (id) => document.getElementById(id);
 const logsEl = byId("logs");
-const authStatus = byId("authStatus");
-const playStatus = byId("playStatus");
 
-function log(message, payload = null) {
-  const line = `[${new Date().toLocaleTimeString()}] ${message}`;
-  logsEl.textContent = `${line}\n${logsEl.textContent}`;
-  if (payload) {
-    logsEl.textContent = `${JSON.stringify(payload, null, 2)}\n${logsEl.textContent}`;
-  }
+function log(msg, data = null) {
+  let text = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  if (data) text += `\n${JSON.stringify(data, null, 2)}`;
+  logsEl.textContent = `${text}\n\n${logsEl.textContent}`;
 }
 
-function setVisible(id, show) {
-  byId(id).classList.toggle("hidden", !show);
+function setHidden(id, hidden) {
+  byId(id).classList.toggle("hidden", hidden);
 }
 
-function updateUiState() {
+function renderUiState() {
   const loggedIn = Boolean(state.token);
-  setVisible("profileCard", loggedIn);
-  setVisible("gameCard", loggedIn && state.playing);
+  setHidden("profileCard", !loggedIn);
+  setHidden("gameCard", !(loggedIn && state.playing));
   if (!loggedIn) {
-    authStatus.textContent = "Not logged in";
-    playStatus.textContent = "Login first.";
+    byId("authStatus").textContent = "Not logged in";
+    byId("playStatus").textContent = "Login first.";
   }
 }
 
 async function api(path, method = "GET", body = null) {
   const headers = { "Content-Type": "application/json" };
-  if (state.token) {
-    headers.Authorization = `Bearer ${state.token}`;
-  }
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
 
-  const response = await fetch(path, {
+  const resp = await fetch(path, {
     method,
     headers,
     body: body ? JSON.stringify(body) : null,
   });
 
-  let data;
-  try {
-    data = await response.json();
-  } catch (_error) {
-    throw new Error(`HTTP ${response.status}`);
+  const payload = await resp.json().catch(() => null);
+  if (!payload || !payload.ok) {
+    throw new Error(payload?.error?.message || `HTTP ${resp.status}`);
   }
-
-  if (!data.ok) {
-    throw new Error(data.error?.message || "Request failed");
-  }
-  return data.data;
+  return payload.data;
 }
 
 function renderProfiles() {
   const select = byId("profileSelect");
   select.innerHTML = "";
-  for (const profile of state.profiles) {
-    const option = document.createElement("option");
-    option.value = profile.player_id;
-    option.textContent = `${profile.display_name} (${profile.player_id.slice(0, 6)})`;
-    if (profile.player_id === state.activeProfileId) {
-      option.selected = true;
-    }
-    select.appendChild(option);
+  for (const p of state.profiles) {
+    const opt = document.createElement("option");
+    opt.value = p.player_id;
+    opt.textContent = `${p.display_name} (${p.player_id.slice(0, 6)})`;
+    if (p.player_id === state.activeProfileId) opt.selected = true;
+    select.appendChild(opt);
   }
 
-  if (state.profiles.length === 0) {
-    state.activeProfileId = "";
-    localStorage.removeItem("active_profile_id");
-    playStatus.textContent = "No profile yet. Create one to continue.";
-    return;
+  if (!state.profiles.some((p) => p.player_id === state.activeProfileId)) {
+    state.activeProfileId = state.profiles[0]?.player_id || "";
   }
-
-  const selectedExists = state.profiles.some((p) => p.player_id === state.activeProfileId);
-  if (!selectedExists) {
-    state.activeProfileId = state.profiles[0].player_id;
+  if (state.activeProfileId) {
     localStorage.setItem("active_profile_id", state.activeProfileId);
+  } else {
+    localStorage.removeItem("active_profile_id");
   }
-  playStatus.textContent = "Select a profile and click Play.";
 }
 
 async function refreshProfiles() {
@@ -92,66 +73,52 @@ async function refreshProfiles() {
 }
 
 async function refreshWorld() {
-  if (!state.playing || !state.activeProfileId) {
-    return;
-  }
-
+  if (!state.playing || !state.activeProfileId) return;
   const data = await api("/world/state");
   const tbody = byId("worldBody");
   tbody.innerHTML = "";
 
   for (const player of data.players) {
-    const tr = document.createElement("tr");
     const me = player.player_id === state.activeProfileId;
-
-    tr.innerHTML = `
+    const row = document.createElement("tr");
+    row.innerHTML = `
       <td>${player.display_name}${me ? " (you)" : ""}</td>
       <td>${player.user_id.slice(0, 6)}</td>
       <td>${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}</td>
       <td class="${player.online ? "online" : "offline"}">${player.online ? "online" : "offline"}</td>
-      <td><button ${me ? "disabled" : ""} data-target="${player.player_id}">Hit</button></td>
+      <td><button ${me ? "disabled" : ""}>Hit</button></td>
     `;
 
-    const button = tr.querySelector("button");
-    if (button && !me) {
-      button.addEventListener("click", async () => {
+    const hitBtn = row.querySelector("button");
+    if (!me) {
+      hitBtn.addEventListener("click", async () => {
         try {
-          const hit = await api("/combat/hit", "POST", {
+          const result = await api("/combat/hit", "POST", {
             attacker_player_id: state.activeProfileId,
             target_player_id: player.player_id,
           });
-          log(`Hit success on ${player.display_name}`, hit);
+          log(`Hit success on ${player.display_name}`, result);
           await refreshWorld();
-        } catch (error) {
-          log(`Hit failed: ${error.message}`);
+        } catch (err) {
+          log(`Hit failed: ${err.message}`);
         }
       });
     }
 
-    tbody.appendChild(tr);
+    tbody.appendChild(row);
   }
 }
 
-async function onLoginSuccess(data, label) {
-  state.token = data.session.token;
-  state.playing = false;
-  localStorage.setItem("session_token", state.token);
-  authStatus.textContent = `Logged in as ${data.user.username}`;
-  updateUiState();
-  await refreshProfiles();
-  log(`${label} success`, data);
-}
-
-function clearAuthState() {
+function clearSession() {
   state.token = "";
+  state.playing = false;
   state.profiles = [];
   state.activeProfileId = "";
-  state.playing = false;
   localStorage.removeItem("session_token");
   localStorage.removeItem("active_profile_id");
   byId("worldBody").innerHTML = "";
   renderProfiles();
-  updateUiState();
+  renderUiState();
 }
 
 function bindEvents() {
@@ -162,10 +129,10 @@ function bindEvents() {
         email: byId("email").value,
         password: byId("password").value,
       });
-      log("Register success. Please login now.", data);
-      authStatus.textContent = `Registered ${data.user.username}. Please login.`;
-    } catch (error) {
-      log(`Register failed: ${error.message}`);
+      byId("authStatus").textContent = `Registered ${data.user.username}. Login now.`;
+      log("Register success", data);
+    } catch (err) {
+      log(`Register failed: ${err.message}`);
     }
   });
 
@@ -175,86 +142,69 @@ function bindEvents() {
         credential: byId("credential").value,
         password: byId("password").value,
       });
-      await onLoginSuccess(data, "Login");
-    } catch (error) {
-      log(`Login failed: ${error.message}`);
+      state.token = data.session.token;
+      state.playing = false;
+      localStorage.setItem("session_token", state.token);
+      byId("authStatus").textContent = `Logged in as ${data.user.username}`;
+      renderUiState();
+      await refreshProfiles();
+      log("Login success", data);
+    } catch (err) {
+      log(`Login failed: ${err.message}`);
     }
   });
 
   byId("logoutBtn").addEventListener("click", async () => {
-    try {
-      if (state.token) {
-        await api("/auth/logout", "POST");
-      }
-    } catch (_error) {
-      // best effort
-    }
-    clearAuthState();
+    try { if (state.token) await api("/auth/logout", "POST"); } catch (_e) {}
+    clearSession();
     log("Logged out");
   });
 
   byId("createProfileBtn").addEventListener("click", async () => {
     try {
-      const data = await api("/profiles", "POST", {
-        display_name: byId("displayName").value,
-      });
+      const data = await api("/profiles", "POST", { display_name: byId("displayName").value });
       log("Profile created", data);
       await refreshProfiles();
-    } catch (error) {
-      log(`Create profile failed: ${error.message}`);
+    } catch (err) {
+      log(`Create profile failed: ${err.message}`);
     }
   });
 
-  byId("profileSelect").addEventListener("change", (event) => {
-    state.activeProfileId = event.target.value;
+  byId("profileSelect").addEventListener("change", (e) => {
+    state.activeProfileId = e.target.value;
     localStorage.setItem("active_profile_id", state.activeProfileId);
   });
 
   byId("playBtn").addEventListener("click", async () => {
     if (!state.activeProfileId) {
-      playStatus.textContent = "Please create/select a profile first.";
+      byId("playStatus").textContent = "Create/select profile first.";
       return;
     }
     try {
-      const started = await api("/play/start", "POST", {
-        player_id: state.activeProfileId,
-      });
+      const data = await api("/play/start", "POST", { player_id: state.activeProfileId });
       state.playing = true;
-      updateUiState();
-      playStatus.textContent = `Playing as ${started.player.display_name}.`;
-      log("Play started", started);
+      byId("playStatus").textContent = `Playing as ${data.player.display_name}`;
+      renderUiState();
       await refreshWorld();
-    } catch (error) {
-      playStatus.textContent = `Play failed: ${error.message}`;
-      log(`Play failed: ${error.message}`);
+      log("Play started", data);
+    } catch (err) {
+      byId("playStatus").textContent = `Play failed: ${err.message}`;
+      log(`Play failed: ${err.message}`);
     }
   });
 
   byId("connectBtn").addEventListener("click", async () => {
-    try {
-      const data = await api("/session/connect", "POST");
-      log("Connected", data);
-      await refreshWorld();
-    } catch (error) {
-      log(`Connect failed: ${error.message}`);
-    }
+    try { log("Connected", await api("/session/connect", "POST")); await refreshWorld(); }
+    catch (err) { log(`Connect failed: ${err.message}`); }
   });
 
   byId("disconnectBtn").addEventListener("click", async () => {
-    try {
-      const data = await api("/session/disconnect", "POST");
-      log("Disconnected", data);
-      await refreshWorld();
-    } catch (error) {
-      log(`Disconnect failed: ${error.message}`);
-    }
+    try { log("Disconnected", await api("/session/disconnect", "POST")); await refreshWorld(); }
+    catch (err) { log(`Disconnect failed: ${err.message}`); }
   });
 
   byId("moveBtn").addEventListener("click", async () => {
-    if (!state.activeProfileId) {
-      log("Pick your active profile first");
-      return;
-    }
+    if (!state.activeProfileId) return;
     try {
       const data = await api("/profiles/position", "POST", {
         player_id: state.activeProfileId,
@@ -263,8 +213,8 @@ function bindEvents() {
       });
       log("Position updated", data);
       await refreshWorld();
-    } catch (error) {
-      log(`Move failed: ${error.message}`);
+    } catch (err) {
+      log(`Move failed: ${err.message}`);
     }
   });
 
@@ -273,25 +223,19 @@ function bindEvents() {
 
 async function boot() {
   bindEvents();
-  updateUiState();
-
-  if (!state.token) {
-    return;
-  }
+  renderUiState();
+  if (!state.token) return;
 
   try {
     const me = await api("/profile/me");
-    authStatus.textContent = `Logged in as ${me.profile.username}`;
+    byId("authStatus").textContent = `Logged in as ${me.profile.username}`;
     await refreshProfiles();
-    updateUiState();
-  } catch (error) {
-    clearAuthState();
-    authStatus.textContent = "Session expired. Please login again.";
-    log(`Boot session failed: ${error.message}`);
+    renderUiState();
+  } catch (err) {
+    clearSession();
+    log(`Session invalid: ${err.message}`);
   }
 }
 
 boot();
-setInterval(() => {
-  refreshWorld().catch((error) => log(`Auto refresh failed: ${error.message}`));
-}, 3000);
+setInterval(() => refreshWorld().catch((err) => log(`Auto refresh failed: ${err.message}`)), 3000);

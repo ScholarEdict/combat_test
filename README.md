@@ -1,25 +1,23 @@
 # combat_test
 
-This project now includes a lightweight browser client for multi-account combat testing.
+This project includes a lightweight browser client for multi-account combat testing.
 
-## Run as a website
+## Run as website
 
 ```bash
 python3 backend/server.py --host 0.0.0.0 --port 8080
 ```
 
-Then open `http://127.0.0.1:8080` in your browser.
+Open: `http://127.0.0.1:8080`
 
-To test multi-account PvP:
-1. Open multiple tabs/windows.
-2. Register account(s), then **login** (register no longer auto-login).
-3. After login, create/select a profile, then click **Play** (this starts the selected profile session).
-4. Move players near each other from each tab.
-5. Use **Hit** in one tab to apply knockback on another player's profile.
+## Browser flow (per tab/account)
+
+1. Register account.
+2. Login.
+3. Create or select profile.
+4. Click **Play** (calls `POST /play/start`).
+5. Move near another profile and use **Hit**.
 
 ## Database design note
 
-A practical, server-authoritative schema proposal for account/auth, profiles, PvP knockback,
-server-side hit registration, and quests is documented in:
-
-- `docs/database_refinement.md`
+See `docs/database_refinement.md` for schema rationale.

@@ -24,9 +24,12 @@ body {
   gap: 8px;
   margin-bottom: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
-input, select, button {
+input,
+select,
+button {
   background: #2b2b2b;
   color: #fff;
   border: 1px solid #555;
@@ -42,28 +45,20 @@ table {
   border-collapse: collapse;
 }
 
-th, td {
+th,
+td {
   border-bottom: 1px solid #333;
   padding: 8px;
   text-align: left;
 }
 
-.hint { color: #cfcfcf; }
 #logs {
   min-height: 120px;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.online {
-  color: #8df58d;
-  font-weight: bold;
-}
-
-.offline {
-  color: #ff9f9f;
-}
-
-.hidden {
-  display: none;
-}
+.hint { color: #cfcfcf; }
+.online { color: #8df58d; font-weight: bold; }
+.offline { color: #ff9f9f; }
+.hidden { display: none; }

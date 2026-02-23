@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -8,11 +8,11 @@
 </head>
 <body>
   <main class="app">
-    <h1>Combat Test (Web)</h1>
-    <p class="hint">Flow: Register/Login → Select or Create Profile → Click Play.</p>
+    <h1>Combat Test</h1>
+    <p class="hint">Login → Profile → Play. Open multiple tabs for multi-account PvP.</p>
 
     <section class="card" id="authCard">
-      <h2>1) Login first</h2>
+      <h2>Auth</h2>
       <div class="row">
         <input id="credential" placeholder="username or email" />
         <input id="password" type="password" placeholder="password" />
@@ -21,7 +21,7 @@
         <input id="username" placeholder="register username" />
         <input id="email" placeholder="register email" />
       </div>
-      <div class="row buttons">
+      <div class="row">
         <button id="registerBtn">Register</button>
         <button id="loginBtn">Login</button>
         <button id="logoutBtn">Logout</button>
@@ -30,43 +30,34 @@
     </section>
 
     <section class="card hidden" id="profileCard">
-      <h2>2) Choose profile</h2>
+      <h2>Profile</h2>
       <div class="row">
         <input id="displayName" placeholder="new display name" />
-        <button id="createProfileBtn">Create Profile</button>
+        <button id="createProfileBtn">Create</button>
       </div>
       <div class="row">
-        <label for="profileSelect">Your profiles:</label>
+        <label for="profileSelect">Profile:</label>
         <select id="profileSelect"></select>
-      </div>
-      <div class="row buttons">
         <button id="playBtn">Play</button>
       </div>
-      <p id="playStatus">Select a profile and click Play.</p>
+      <p id="playStatus">Select profile and click Play.</p>
     </section>
 
     <section class="card hidden" id="gameCard">
-      <h2>3) Game panel</h2>
-      <div class="row buttons">
+      <h2>Game</h2>
+      <div class="row">
+        <button id="refreshBtn">Refresh</button>
         <button id="connectBtn">Connect</button>
         <button id="disconnectBtn">Disconnect</button>
-        <button id="refreshBtn">Refresh World</button>
       </div>
       <div class="row">
-        <label>X <input id="posX" type="number" value="0" step="0.5"></label>
-        <label>Y <input id="posY" type="number" value="0" step="0.5"></label>
-        <button id="moveBtn">Update Position</button>
+        <label>X <input id="posX" type="number" value="0" step="0.5" /></label>
+        <label>Y <input id="posY" type="number" value="0" step="0.5" /></label>
+        <button id="moveBtn">Move</button>
       </div>
-
       <table>
         <thead>
-          <tr>
-            <th>Player</th>
-            <th>User</th>
-            <th>Position</th>
-            <th>Online</th>
-            <th>Action</th>
-          </tr>
+          <tr><th>Player</th><th>User</th><th>Pos</th><th>Online</th><th>Action</th></tr>
         </thead>
         <tbody id="worldBody"></tbody>
       </table>
