@@ -79,6 +79,14 @@ func fetch_world_state() -> Dictionary:
 	return await _request_json("/world/state", HTTPClient.METHOD_GET)
 
 
+func update_profile_position(player_id: String, world_position: Vector2) -> Dictionary:
+	return await _request_json("/profiles/position", HTTPClient.METHOD_POST, {
+		"player_id": player_id,
+		"x": world_position.x,
+		"y": world_position.y,
+	})
+
+
 func connect_session() -> Dictionary:
 	return await _request_json("/session/connect", HTTPClient.METHOD_POST)
 
