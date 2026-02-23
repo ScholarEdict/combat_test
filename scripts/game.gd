@@ -14,6 +14,12 @@ var password_input: LineEdit
 var username_input: LineEdit
 var email_input: LineEdit
 
+var gameplay_ui_layer: CanvasLayer
+var account_label: Label
+var online_label: Label
+var logout_button: Button
+var presence_poll_timer: Timer
+
 func _ready() -> void:
 	if player_scene == null:
 		player_scene = preload("res://scenes/player.tscn")
@@ -22,8 +28,19 @@ func _ready() -> void:
 
 	api_client = ApiClient.new()
 	add_child(api_client)
+	api_client.presence_changed.connect(_on_presence_changed)
 
 	await _gate_auth_then_start_game()
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_disconnect_presence_no_wait()
+
+
+func _disconnect_presence_no_wait() -> void:
+	if api_client and api_client.has_session():
+		api_client.disconnect_session()
 
 
 func _gate_auth_then_start_game() -> void:
@@ -31,7 +48,7 @@ func _gate_auth_then_start_game() -> void:
 		_set_status("Found session, loading profile...")
 		var profile_result := await api_client.fetch_profile()
 		if profile_result.get("ok", false):
-			_start_gameplay(profile_result["data"])
+			await _start_gameplay(profile_result["data"])
 			return
 		api_client.clear_session()
 
@@ -45,6 +62,20 @@ func _start_gameplay(data: Dictionary) -> void:
 
 	print("Authenticated user: ", data.get("profile", {}))
 	print("Loaded assets: ", data.get("assets", {}))
+
+	_ensure_gameplay_ui()
+	var profile_data: Dictionary = data.get("profile", {})
+	account_label.text = "Connected as: %s" % str(profile_data.get("username", "unknown"))
+
+	var connect_result := await api_client.connect_session()
+	if not connect_result.get("ok", false):
+		_show_error(connect_result)
+	else:
+		online_label.text = "Online players: syncing..."
+
+	await api_client.fetch_online_users()
+	if presence_poll_timer:
+		presence_poll_timer.start()
 
 	spawn_from_state({
 		"players": [
@@ -62,6 +93,84 @@ func _start_gameplay(data: Dictionary) -> void:
 			}
 		]
 	})
+
+
+func _ensure_gameplay_ui() -> void:
+	if gameplay_ui_layer:
+		return
+
+	gameplay_ui_layer = CanvasLayer.new()
+	add_child(gameplay_ui_layer)
+
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	gameplay_ui_layer.add_child(root)
+
+	var panel := PanelContainer.new()
+	panel.position = Vector2(12, 12)
+	panel.custom_minimum_size = Vector2(270, 90)
+	root.add_child(panel)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	panel.add_child(vbox)
+
+	account_label = Label.new()
+	account_label.text = "Connected as: -"
+	vbox.add_child(account_label)
+
+	online_label = Label.new()
+	online_label.text = "Online players: -"
+	vbox.add_child(online_label)
+
+	logout_button = Button.new()
+	logout_button.text = "Disconnect"
+	logout_button.pressed.connect(_on_logout_pressed)
+	vbox.add_child(logout_button)
+
+	presence_poll_timer = Timer.new()
+	presence_poll_timer.wait_time = 2.0
+	presence_poll_timer.one_shot = false
+	presence_poll_timer.timeout.connect(_on_presence_poll_timeout)
+	add_child(presence_poll_timer)
+
+
+func _on_presence_poll_timeout() -> void:
+	await api_client.fetch_online_users()
+
+
+func _on_presence_changed(online: Array, count: int) -> void:
+	var names: PackedStringArray = []
+	for item in online:
+		if item is Dictionary:
+			names.append(str(item.get("username", "unknown")))
+	online_label.text = "Online players (%d): %s" % [count, ", ".join(names)]
+
+
+func _on_logout_pressed() -> void:
+	if presence_poll_timer:
+		presence_poll_timer.stop()
+	await api_client.logout()
+	if gameplay_ui_layer:
+		gameplay_ui_layer.queue_free()
+		gameplay_ui_layer = null
+	account_label = null
+	online_label = null
+	logout_button = null
+	_clear_world()
+	_show_auth_ui()
+
+
+func _clear_world() -> void:
+	for player in players.values():
+		if is_instance_valid(player):
+			player.queue_free()
+	players.clear()
+
+	for entity in entities.values():
+		if is_instance_valid(entity):
+			entity.queue_free()
+	entities.clear()
 
 
 func _show_auth_ui() -> void:
@@ -134,7 +243,7 @@ func _on_login_pressed() -> void:
 		_show_error(profile_result)
 		return
 
-	_start_gameplay(profile_result["data"])
+	await _start_gameplay(profile_result["data"])
 
 
 func _on_register_pressed() -> void:
@@ -150,7 +259,7 @@ func _on_register_pressed() -> void:
 		_show_error(profile_result)
 		return
 
-	_start_gameplay(profile_result["data"])
+	await _start_gameplay(profile_result["data"])
 
 
 func _show_error(result: Dictionary) -> void:
