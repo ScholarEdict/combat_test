@@ -111,5 +111,4 @@ func _to_vector2(raw_value: Variant) -> Vector2:
 
 func spawn_enemy() -> void:
 	var enemy = preload("res://scenes/enemies.tscn").instantiate()
-	enemy.player = self
 	get_parent().add_child(enemy)
