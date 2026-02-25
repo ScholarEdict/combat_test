@@ -63,8 +63,8 @@ func _process(_delta: float) -> void:
 
 
 func _disconnect_presence_no_wait() -> void:
-	if api_client and api_client.has_session():
-		api_client.disconnect_session()
+	if api_client and api_client.has_session() and not selected_profile_id.is_empty():
+		api_client.disconnect_session(selected_profile_id)
 
 
 func _gate_auth_then_start_game() -> void:
@@ -300,6 +300,7 @@ func _on_play_pressed() -> void:
 		lobby_status_label.text = "Selected profile not found"
 		return
 
+	selected_profile_id = str(selected_profile.get("player_id", ""))
 	await _start_gameplay(selected_profile)
 
 
@@ -314,7 +315,18 @@ func _start_gameplay(selected_profile: Dictionary) -> void:
 		str(selected_profile.get("display_name", "profile")),
 	]
 
-	var connect_result := await api_client.connect_session()
+	var player_id := str(selected_profile.get("player_id", ""))
+	if player_id.is_empty():
+		_show_lobby_error({
+			"error": {
+				"code": "MISSING_PLAYER_ID",
+				"message": "Selected profile is missing player_id",
+			}
+		})
+		await _show_lobby(current_account)
+		return
+
+	var connect_result := await api_client.connect_session(player_id)
 	if not connect_result.get("ok", false):
 		_show_error(connect_result)
 		await _show_lobby(current_account)
@@ -500,7 +512,7 @@ func _on_back_to_lobby_pressed() -> void:
 		world_poll_timer.stop()
 	if position_sync_timer:
 		position_sync_timer.stop()
-	await api_client.disconnect_session()
+	await api_client.disconnect_session(selected_profile_id)
 	await _show_lobby(current_account)
 
 
@@ -649,8 +661,21 @@ func _spawn_or_update_player(player_payload: Dictionary) -> CharacterBody2D:
 
 	if player_payload.has("is_local"):
 		player.is_local_player = bool(player_payload["is_local"])
+
 	if player_payload.has("position"):
-		player.global_position = _to_vector2(player_payload["position"])
+		var server_position := _to_vector2(player_payload["position"])
+		if player.is_local_player:
+			# Client-side prediction: keep local input responsive and softly reconcile server state.
+			var reconciliation_distance := player.global_position.distance_to(server_position)
+			if reconciliation_distance > 96.0:
+				player.global_position = server_position
+			elif reconciliation_distance > 8.0:
+				player.global_position = player.global_position.lerp(server_position, 0.15)
+		else:
+			if player.has_method("apply_network_position"):
+				player.apply_network_position(server_position)
+			else:
+				player.global_position = server_position
 
 	if player.is_local_player and player.get_node_or_null("Camera2D") == null:
 		var camera := Camera2D.new()

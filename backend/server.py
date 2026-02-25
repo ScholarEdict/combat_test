@@ -296,6 +296,11 @@ class DB:
             cur = self._conn.execute("DELETE FROM auth_sessions WHERE session_id=?", (sid,))
         return cur.rowcount > 0
 
+    def destroy_all_sessions(self) -> int:
+        with self._lock, self._conn:
+            cur = self._conn.execute("DELETE FROM auth_sessions")
+        return int(cur.rowcount)
+
     def create_profile(self, user_id: str, display_name: str, skill_id: str | None = None) -> tuple[bool, dict | str]:
         now = int(time.time())
         player_id = secrets.token_hex(8)
@@ -972,13 +977,15 @@ class Handler(BaseHTTPRequestHandler):
         online_player_ids = set(self.presence.online_players().keys())
         world_players = []
         for profile in all_profiles:
+            if profile["player_id"] not in online_player_ids:
+                continue
             world_players.append({
                 "player_id": profile["player_id"],
                 "user_id": profile["user_id"],
                 "display_name": profile["display_name"],
                 "equipped_weapon_id": profile["equipped_weapon_id"],
                 "position": profile["position"],
-                "online": profile["player_id"] in online_player_ids,
+                "online": True,
             })
 
         ok(self, {
@@ -1010,10 +1017,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def run(host: str, port: int) -> None:
     Handler.db = DB(DB_PATH)
+    Handler.db.destroy_all_sessions()
     Handler.presence = PresenceStore()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Auth API listening on http://{host}:{port}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        Handler.presence = PresenceStore()
+        Handler.db.destroy_all_sessions()
 
 
 if __name__ == "__main__":

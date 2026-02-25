@@ -87,12 +87,18 @@ func update_profile_position(player_id: String, world_position: Vector2) -> Dict
 	})
 
 
-func connect_session() -> Dictionary:
-	return await _request_json("/session/connect", HTTPClient.METHOD_POST)
+func connect_session(player_id: String) -> Dictionary:
+	return await _request_json("/session/connect", HTTPClient.METHOD_POST, {
+		"player_id": player_id,
+	})
 
 
-func disconnect_session() -> Dictionary:
-	return await _request_json("/session/disconnect", HTTPClient.METHOD_POST)
+func disconnect_session(player_id: String = "") -> Dictionary:
+	if player_id.is_empty():
+		return await _request_json("/session/disconnect", HTTPClient.METHOD_POST)
+	return await _request_json("/session/disconnect", HTTPClient.METHOD_POST, {
+		"player_id": player_id,
+	})
 
 
 func logout() -> Dictionary:
