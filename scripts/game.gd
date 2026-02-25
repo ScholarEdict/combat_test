@@ -300,6 +300,7 @@ func _on_play_pressed() -> void:
 		lobby_status_label.text = "Selected profile not found"
 		return
 
+	selected_profile_id = str(selected_profile.get("player_id", ""))
 	await _start_gameplay(selected_profile)
 
 
@@ -660,8 +661,21 @@ func _spawn_or_update_player(player_payload: Dictionary) -> CharacterBody2D:
 
 	if player_payload.has("is_local"):
 		player.is_local_player = bool(player_payload["is_local"])
+
 	if player_payload.has("position"):
-		player.global_position = _to_vector2(player_payload["position"])
+		var server_position := _to_vector2(player_payload["position"])
+		if player.is_local_player:
+			# Client-side prediction: keep local input responsive and softly reconcile server state.
+			var reconciliation_distance := player.global_position.distance_to(server_position)
+			if reconciliation_distance > 96.0:
+				player.global_position = server_position
+			elif reconciliation_distance > 8.0:
+				player.global_position = player.global_position.lerp(server_position, 0.15)
+		else:
+			if player.has_method("apply_network_position"):
+				player.apply_network_position(server_position)
+			else:
+				player.global_position = server_position
 
 	if player.is_local_player and player.get_node_or_null("Camera2D") == null:
 		var camera := Camera2D.new()
