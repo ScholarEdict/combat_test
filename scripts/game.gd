@@ -14,6 +14,10 @@ var password_input: LineEdit
 var username_input: LineEdit
 var email_input: LineEdit
 
+const AUTH_MODE_LOGIN := "login"
+const AUTH_MODE_REGISTER := "register"
+var auth_mode := AUTH_MODE_LOGIN
+
 var lobby_layer: CanvasLayer
 var lobby_status_label: Label
 var profile_name_input: LineEdit
@@ -74,10 +78,15 @@ func _gate_auth_then_start_game() -> void:
 	_show_auth_ui()
 
 
-func _show_auth_ui() -> void:
+func _show_auth_ui(mode: String = AUTH_MODE_LOGIN, status_message: String = "") -> void:
+	auth_mode = mode
+
 	if lobby_layer:
 		lobby_layer.queue_free()
 		lobby_layer = null
+	if auth_layer:
+		auth_layer.queue_free()
+		auth_layer = null
 
 	auth_layer = CanvasLayer.new()
 	add_child(auth_layer)
@@ -96,42 +105,58 @@ func _show_auth_ui() -> void:
 	panel.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "Login or Register"
+	title.text = "Login" if auth_mode == AUTH_MODE_LOGIN else "Register"
 	vbox.add_child(title)
 
-	credential_input = LineEdit.new()
-	credential_input.placeholder_text = "username or email"
-	vbox.add_child(credential_input)
-
+	credential_input = null
+	username_input = null
+	email_input = null
 	password_input = LineEdit.new()
+
+	if auth_mode == AUTH_MODE_LOGIN:
+		credential_input = LineEdit.new()
+		credential_input.placeholder_text = "username or email"
+		vbox.add_child(credential_input)
+	else:
+		username_input = LineEdit.new()
+		username_input.placeholder_text = "new username"
+		vbox.add_child(username_input)
+
+		email_input = LineEdit.new()
+		email_input.placeholder_text = "new email"
+		vbox.add_child(email_input)
+
 	password_input.placeholder_text = "password"
 	password_input.secret = true
 	vbox.add_child(password_input)
 
-	username_input = LineEdit.new()
-	username_input.placeholder_text = "new username"
-	vbox.add_child(username_input)
-
-	email_input = LineEdit.new()
-	email_input.placeholder_text = "new email"
-	vbox.add_child(email_input)
-
 	var buttons := HBoxContainer.new()
 	vbox.add_child(buttons)
 
-	var login_button := Button.new()
-	login_button.text = "Login"
-	login_button.pressed.connect(_on_login_pressed)
-	buttons.add_child(login_button)
+	if auth_mode == AUTH_MODE_LOGIN:
+		var login_button := Button.new()
+		login_button.text = "Login"
+		login_button.pressed.connect(_on_login_pressed)
+		buttons.add_child(login_button)
 
-	var register_button := Button.new()
-	register_button.text = "Register"
-	register_button.pressed.connect(_on_register_pressed)
-	buttons.add_child(register_button)
+		var register_button := Button.new()
+		register_button.text = "Register"
+		register_button.pressed.connect(_on_switch_to_register_pressed)
+		buttons.add_child(register_button)
+	else:
+		var create_account_button := Button.new()
+		create_account_button.text = "Create Account"
+		create_account_button.pressed.connect(_on_register_pressed)
+		buttons.add_child(create_account_button)
+
+		var back_to_login_button := Button.new()
+		back_to_login_button.text = "Back to Login"
+		back_to_login_button.pressed.connect(_on_switch_to_login_pressed)
+		buttons.add_child(back_to_login_button)
 
 	status_label = Label.new()
 	status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	status_label.text = "Please authenticate to continue"
+	status_label.text = status_message if not status_message.is_empty() else "Please authenticate to continue"
 	vbox.add_child(status_label)
 
 
@@ -499,6 +524,10 @@ func _on_logout_pressed() -> void:
 
 
 func _on_login_pressed() -> void:
+	if credential_input == null:
+		_set_status("Login form is unavailable")
+		return
+
 	_set_status("Logging in...")
 	var login_result := await api_client.login_user(credential_input.text, password_input.text)
 	if not login_result.get("ok", false):
@@ -514,18 +543,26 @@ func _on_login_pressed() -> void:
 
 
 func _on_register_pressed() -> void:
+	if username_input == null or email_input == null:
+		_set_status("Register form is unavailable")
+		return
+
 	_set_status("Registering...")
 	var register_result := await api_client.register_user(username_input.text, email_input.text, password_input.text)
 	if not register_result.get("ok", false):
 		_show_error(register_result)
 		return
 
-	var profile_result := await api_client.fetch_profile()
-	if not profile_result.get("ok", false):
-		_show_error(profile_result)
-		return
+	api_client.clear_session()
+	_show_auth_ui(AUTH_MODE_LOGIN, "Registration successful. Please log in.")
 
-	await _show_lobby(profile_result["data"].get("profile", {}))
+
+func _on_switch_to_register_pressed() -> void:
+	_show_auth_ui(AUTH_MODE_REGISTER)
+
+
+func _on_switch_to_login_pressed() -> void:
+	_show_auth_ui(AUTH_MODE_LOGIN)
 
 
 func _show_lobby_error(result: Dictionary) -> void:
