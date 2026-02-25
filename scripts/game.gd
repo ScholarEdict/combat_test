@@ -63,8 +63,8 @@ func _process(_delta: float) -> void:
 
 
 func _disconnect_presence_no_wait() -> void:
-	if api_client and api_client.has_session():
-		api_client.disconnect_session()
+	if api_client and api_client.has_session() and not selected_profile_id.is_empty():
+		api_client.disconnect_session(selected_profile_id)
 
 
 func _gate_auth_then_start_game() -> void:
@@ -314,7 +314,18 @@ func _start_gameplay(selected_profile: Dictionary) -> void:
 		str(selected_profile.get("display_name", "profile")),
 	]
 
-	var connect_result := await api_client.connect_session()
+	var player_id := str(selected_profile.get("player_id", ""))
+	if player_id.is_empty():
+		_show_lobby_error({
+			"error": {
+				"code": "MISSING_PLAYER_ID",
+				"message": "Selected profile is missing player_id",
+			}
+		})
+		await _show_lobby(current_account)
+		return
+
+	var connect_result := await api_client.connect_session(player_id)
 	if not connect_result.get("ok", false):
 		_show_error(connect_result)
 		await _show_lobby(current_account)
@@ -500,7 +511,7 @@ func _on_back_to_lobby_pressed() -> void:
 		world_poll_timer.stop()
 	if position_sync_timer:
 		position_sync_timer.stop()
-	await api_client.disconnect_session()
+	await api_client.disconnect_session(selected_profile_id)
 	await _show_lobby(current_account)
 
 
