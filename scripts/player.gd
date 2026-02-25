@@ -8,6 +8,12 @@ var last_dir := Vector2.DOWN
 var radius := 15.0
 var input_dto := PlayerSimulation.make_input(Vector2.ZERO, Vector2.DOWN, false)
 
+# Remote interpolation / prediction state
+var _network_target_position := Vector2.ZERO
+var _network_velocity := Vector2.ZERO
+var _last_network_update_time := 0.0
+var _has_network_state := false
+
 @onready var anim: AnimatedSprite2D = $AnimatedSprite2D
 @onready var sanim: AnimationPlayer = $sword/AnimationPlayer
 
@@ -18,9 +24,11 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if is_local_player:
 		input_dto = _collect_local_input()
+		_run_simulation(input_dto)
+		move_and_slide()
+		return
 
-	_run_simulation(input_dto)
-	move_and_slide()
+	_update_remote_prediction(delta)
 
 
 func _run_simulation(dto: Dictionary) -> void:
@@ -53,6 +61,46 @@ func _collect_local_input() -> Dictionary:
 		aim_vector,
 		Input.is_action_just_pressed("click")
 	)
+
+
+func apply_network_position(server_position: Vector2) -> void:
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	if not _has_network_state:
+		global_position = server_position
+		_network_target_position = server_position
+		_network_velocity = Vector2.ZERO
+		_last_network_update_time = now
+		_has_network_state = true
+		return
+
+	var dt: float = max(now - _last_network_update_time, 0.001)
+	_network_velocity = (server_position - _network_target_position) / dt
+	_network_target_position = server_position
+	_last_network_update_time = now
+
+
+func _update_remote_prediction(delta: float) -> void:
+	if not _has_network_state:
+		return
+
+	var now: float = float(Time.get_ticks_msec()) / 1000.0
+	var extrapolation: float = clamp(now - _last_network_update_time, 0.0, 0.25)
+	var predicted_target: Vector2 = _network_target_position + (_network_velocity * extrapolation)
+	var move_delta: Vector2 = predicted_target - global_position
+	var smooth_factor: float = clamp(delta * 12.0, 0.0, 1.0)
+	global_position = global_position.lerp(predicted_target, smooth_factor)
+
+	if move_delta.length_squared() > 0.0001:
+		last_dir = move_delta.normalized()
+		if anim.animation != "walk":
+			anim.play("walk")
+	else:
+		if anim.animation != "idle":
+			anim.play("idle")
+
+	$sword.position = last_dir * radius
+	$sword.rotation = last_dir.angle()
+	anim.flip_h = last_dir.x < 0
 
 
 func set_input_dto(dto: Dictionary) -> void:
