@@ -523,31 +523,64 @@ class DB:
 
 class PresenceStore:
     def __init__(self) -> None:
-        self._presence_by_user: dict[str, dict] = {}
+        self._presence_by_session: dict[str, dict] = {}
         self._lock = threading.Lock()
 
-    def connect(self, user_id: str) -> None:
+    def connect(self, session_id: str, user_id: str, player_id: str) -> None:
         now = int(time.time())
         with self._lock:
-            self._presence_by_user[user_id] = {
+            self._presence_by_session[session_id] = {
+                "user_id": user_id,
+                "player_id": player_id,
                 "connected_at": now,
                 "last_seen": now,
             }
 
-    def disconnect(self, user_id: str) -> None:
+    def disconnect_session(self, session_id: str) -> None:
         with self._lock:
-            if user_id in self._presence_by_user:
-                del self._presence_by_user[user_id]
+            if session_id in self._presence_by_session:
+                del self._presence_by_session[session_id]
 
-    def touch(self, user_id: str) -> None:
+    def disconnect_user(self, user_id: str) -> None:
+        with self._lock:
+            session_ids = [
+                session_id
+                for session_id, presence in self._presence_by_session.items()
+                if presence.get("user_id") == user_id
+            ]
+            for session_id in session_ids:
+                del self._presence_by_session[session_id]
+
+    def touch_session(self, session_id: str) -> None:
         now = int(time.time())
         with self._lock:
-            if user_id in self._presence_by_user:
-                self._presence_by_user[user_id]["last_seen"] = now
+            if session_id in self._presence_by_session:
+                self._presence_by_session[session_id]["last_seen"] = now
 
-    def online_user_ids(self) -> dict[str, dict]:
+    def online_sessions(self) -> dict[str, dict]:
         with self._lock:
-            return dict(self._presence_by_user)
+            return dict(self._presence_by_session)
+
+    def online_player_ids(self) -> set[str]:
+        with self._lock:
+            return {
+                str(presence.get("player_id", ""))
+                for presence in self._presence_by_session.values()
+                if presence.get("player_id")
+            }
+
+    def active_player_for_session(self, session_id: str | None) -> str:
+        if not session_id:
+            return ""
+        with self._lock:
+            presence = self._presence_by_session.get(session_id)
+            if not presence:
+                return ""
+            return str(presence.get("player_id", ""))
+
+    def clear(self) -> None:
+        with self._lock:
+            self._presence_by_session.clear()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -860,10 +893,27 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
             return
 
-        self.presence.connect(user_id)
+        sid = self._session_id()
+        if not sid:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
+            return
+
+        payload = self._read_json()
+        player_id = str(payload.get("player_id", ""))
+        if not player_id:
+            err(self, HTTPStatus.BAD_REQUEST, "VALIDATION_ERROR", "player_id is required")
+            return
+
+        profile = self.db.get_profile(player_id)
+        if not profile or profile["user_id"] != user_id:
+            err(self, HTTPStatus.FORBIDDEN, "FORBIDDEN", "Profile not owned by this user")
+            return
+
+        self.presence.connect(sid, user_id, player_id)
         user = self.db.find_user_by_id(user_id)
         ok(self, {
             "connected": True,
+            "player_id": player_id,
             "user": {
                 "id": user_id,
                 "username": user.get("username", "") if user else "",
@@ -876,14 +926,34 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
             return
 
-        self.presence.disconnect(user_id)
+        sid = self._session_id()
+        if not sid:
+            err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
+            return
+
+        payload = self._read_json()
+        player_id = str(payload.get("player_id", ""))
+        if player_id:
+            profile = self.db.get_profile(player_id)
+            if not profile or profile["user_id"] != user_id:
+                err(self, HTTPStatus.FORBIDDEN, "FORBIDDEN", "Profile not owned by this user")
+                return
+            active_player_id = self.presence.active_player_for_session(sid)
+            if active_player_id and active_player_id != player_id:
+                err(self, HTTPStatus.FORBIDDEN, "FORBIDDEN", "Can only disconnect your active profile")
+                return
+            self.presence.disconnect_session(sid)
+        else:
+            self.presence.disconnect_session(sid)
+
         ok(self, {"disconnected": True})
 
     def _handle_logout(self) -> None:
         sid = self._session_id()
         user_id = self.db.resolve_session(sid)
         if user_id:
-            self.presence.disconnect(user_id)
+            if sid:
+                self.presence.disconnect_session(sid)
         self.db.destroy_session(sid)
         clear_cookie = "session_id=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
         ok(self, {"logged_out": True}, set_cookie=clear_cookie)
@@ -894,14 +964,23 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
             return
 
-        self.presence.touch(user_id)
+        sid = self._session_id()
+        if sid:
+            self.presence.touch_session(sid)
+
+        active_player_id = self.presence.active_player_for_session(sid)
+
         online_payload = []
-        for online_user_id, presence in self.presence.online_user_ids().items():
+        for session_id, presence in self.presence.online_sessions().items():
+            online_user_id = str(presence.get("user_id", ""))
+            player_id = str(presence.get("player_id", ""))
             user = self.db.find_user_by_id(online_user_id)
             if not user:
                 continue
             online_payload.append({
                 "id": online_user_id,
+                "player_id": player_id,
+                "session_id": session_id,
                 "username": user["username"],
                 "connected_at": presence.get("connected_at", 0),
                 "last_seen": presence.get("last_seen", 0),
@@ -910,6 +989,7 @@ class Handler(BaseHTTPRequestHandler):
         ok(self, {
             "online": online_payload,
             "count": len(online_payload),
+            "active_player_id": active_player_id,
         })
 
     def _handle_world_state(self) -> None:
@@ -918,9 +998,12 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.UNAUTHORIZED, "UNAUTHORIZED", "Valid non-banned session required")
             return
 
-        self.presence.touch(user_id)
+        sid = self._session_id()
+        if sid:
+            self.presence.touch_session(sid)
+
         all_profiles = self.db.list_all_profiles()
-        online_user_ids = set(self.presence.online_user_ids().keys())
+        online_player_ids = self.presence.online_player_ids()
         world_players = []
         for profile in all_profiles:
             world_players.append({
@@ -929,7 +1012,7 @@ class Handler(BaseHTTPRequestHandler):
                 "display_name": profile["display_name"],
                 "equipped_weapon_id": profile["equipped_weapon_id"],
                 "position": profile["position"],
-                "online": profile["user_id"] in online_user_ids,
+                "online": profile["player_id"] in online_player_ids,
             })
 
         ok(self, {
@@ -964,7 +1047,12 @@ def run(host: str, port: int) -> None:
     Handler.presence = PresenceStore()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Auth API listening on http://{host}:{port}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        # Ensure all active player presence is cleared on shutdown.
+        Handler.presence.clear()
+        server.server_close()
 
 
 if __name__ == "__main__":

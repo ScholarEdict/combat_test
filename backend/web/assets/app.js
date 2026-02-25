@@ -128,7 +128,9 @@ async function enterGame() {
   }
 
   try {
-    await api("/session/connect", "POST");
+    await api("/session/connect", "POST", {
+      player_id: state.activeProfileId,
+    });
     state.inGame = true;
     updateView();
     await refreshWorld();
@@ -140,7 +142,9 @@ async function enterGame() {
 
 async function leaveGame() {
   try {
-    await api("/session/disconnect", "POST");
+    await api("/session/disconnect", "POST", {
+      player_id: state.activeProfileId,
+    });
   } catch (_error) {
     // Ignore disconnect failure.
   }
@@ -235,7 +239,9 @@ function bindEvents() {
 
   byId("disconnectBtn").addEventListener("click", async () => {
     try {
-      const data = await api("/session/disconnect", "POST");
+      const data = await api("/session/disconnect", "POST", {
+        player_id: state.activeProfileId,
+      });
       log("Disconnected", data);
       await refreshWorld();
     } catch (error) {
