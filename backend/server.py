@@ -887,7 +887,9 @@ class Handler(BaseHTTPRequestHandler):
             err(self, HTTPStatus.FORBIDDEN, "FORBIDDEN", "Profile not owned by this user")
             return
 
-        self.presence.disconnect_user(user_id)
+        # Allow multiple profiles from the same authenticated user to be online
+        # at once (e.g. multiple local clients during multiplayer testing).
+        # We only replace presence for the same player_id key.
         self.presence.connect(user_id, player_id)
         user = self.db.find_user_by_id(user_id)
         ok(self, {
