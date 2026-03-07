@@ -111,7 +111,20 @@ func logout() -> Dictionary:
 func fetch_online_users() -> Dictionary:
 	var response := await _request_json("/session/online", HTTPClient.METHOD_GET)
 	if response.get("ok", false):
-		var online: Array = response["data"].get("online", [])
+		var raw_online = response["data"].get("online", [])
+		var online: Array = []
+		if raw_online is Array:
+			online = raw_online
+		elif raw_online is Dictionary:
+			for player_id in raw_online.keys():
+				var presence: Dictionary = raw_online.get(player_id, {})
+				online.append({
+					"player_id": str(player_id),
+					"username": str(presence.get("username", player_id)),
+					"user_id": str(presence.get("user_id", "")),
+					"connected_at": int(presence.get("connected_at", 0)),
+					"last_seen": int(presence.get("last_seen", 0)),
+				})
 		var count := int(response["data"].get("count", online.size()))
 		emit_signal("presence_changed", online, count)
 	return response
