@@ -19,7 +19,7 @@ To test multi-account PvP:
 
 ## Database design note
 
-A practical, server-authoritative schema proposal for account/auth, profiles, PvP knockback,
-server-side hit registration, and quests is documented in:
+The backend now uses a peer-to-peer-oriented schema with explicit reset-and-create SQL in:
 
 - `docs/database_refinement.md`
+- `backend/sql/p2p_schema.sql`
